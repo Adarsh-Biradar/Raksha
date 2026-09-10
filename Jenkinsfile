@@ -15,7 +15,7 @@ pipeline {
     }
     stage('Build & Push API image') {
       steps {
-        container('kaniko') {
+        container('kaniko-api') {
           sh '''
             /kaniko/executor \
               --context=dir://${WORKSPACE}/backend \
@@ -28,7 +28,7 @@ pipeline {
     }
     stage('Build & Push Web image') {
       steps {
-        container('kaniko') {
+        container('kaniko-web') {
           sh '''
             /kaniko/executor \
               --context=dir://${WORKSPACE}/frontend \
