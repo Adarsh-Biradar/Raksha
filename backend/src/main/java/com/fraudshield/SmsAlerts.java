@@ -16,8 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class SmsAlerts {
  private static final String HTTPSMS_API_KEY="pk_6_RhpNtDRAm3mLnYrV_1qwhwxdjSERzRblHswzByRAdOe8N_hpfvu5t8WPxIfVw3";
- // TODO: set this to the phone number registered in your httpSMS Android app (E.164, e.g. +15555550100).
- private static final String HTTPSMS_FROM_NUMBER="+00000000000";
+ private static final String HTTPSMS_FROM_NUMBER="+919652942332";
  private static final URI HTTPSMS_ENDPOINT=URI.create("https://api.httpsms.com/v1/messages/send");
 
  final JdbcTemplate db; final TransactionTemplate tx; final FraudService fraud; final ObjectMapper json;
