@@ -176,7 +176,7 @@ spec:
         - configMapRef:
             name: raksha-config
         image: adarshbiradar/raksha-api:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
           periodSeconds: 15
@@ -252,7 +252,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - image: adarshbiradar/raksha-web:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /health
@@ -341,7 +341,7 @@ spec:
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
         image: postgres:16-alpine
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 5
           periodSeconds: 15
@@ -465,7 +465,7 @@ spec:
               key: RABBITMQ_PASSWORD
               name: raksha-config
         image: rabbitmq:3-management-alpine
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         livenessProbe:
           exec:
             command:
@@ -842,7 +842,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - image: prom/prometheus:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: prometheus
         ports:
         - containerPort: 9090
@@ -923,7 +923,7 @@ spec:
         - name: GF_AUTH_ANONYMOUS_ENABLED
           value: "false"
         image: grafana/grafana:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: grafana
         ports:
         - containerPort: 3000
