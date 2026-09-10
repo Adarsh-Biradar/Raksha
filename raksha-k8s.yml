@@ -136,6 +136,24 @@ spec:
             configMapKeyRef:
               key: DEMO_PASSWORD
               name: raksha-config
+        - name: RAZORPAY_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: raksha-payments
+              key: RAZORPAY_KEY_ID
+              optional: true
+        - name: RAZORPAY_KEY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: raksha-payments
+              key: RAZORPAY_KEY_SECRET
+              optional: true
+        - name: RAZORPAY_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: raksha-payments
+              key: RAZORPAY_WEBHOOK_SECRET
+              optional: true
         - name: SMTP_USERNAME
           valueFrom:
             configMapKeyRef:
@@ -985,3 +1003,4 @@ spec:
       - emptyDir:
           sizeLimit: 64Mi
         name: temporary
+

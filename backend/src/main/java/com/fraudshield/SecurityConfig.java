@@ -34,8 +34,9 @@ public class SecurityConfig {
   };
  }
  @Bean SecurityFilterChain security(HttpSecurity http) throws Exception {
-  http.authorizeHttpRequests(auth -> auth
+  http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/payments/webhook")).authorizeHttpRequests(auth -> auth
    .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
+   .requestMatchers(org.springframework.http.HttpMethod.POST,"/api/payments/webhook").permitAll()
    .requestMatchers("/api/csrf","/api/auth/login","/actuator/health","/actuator/health/**","/actuator/prometheus").permitAll()
    .requestMatchers("/api/rules/**","/api/audit-events","/api/jobs/**","/api/notifications/**").hasRole("ADMIN")
    .requestMatchers(org.springframework.http.HttpMethod.POST,"/api/**").hasAnyRole("ADMIN","ANALYST")
@@ -64,3 +65,4 @@ public class SecurityConfig {
   }
  }
 }
+

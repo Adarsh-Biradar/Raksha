@@ -62,7 +62,7 @@ async function setRule(extra){
 }
 async function create(){
  const eventId='email-check-'+randomUUID();
- const payload={eventId,accountId:'email-'+randomUUID(),amountMinor:10000,currency:'INR',merchant:'Email verification merchant',country:'IN',deviceId:'email-test',failedAttempts:0,occurredAt:new Date().toISOString(),ipAddress:'203.0.113.238'};
+ const payload={eventId,accountId:'email-'+randomUUID(),amountMinor:10000,currency:'INR',merchant:'Email verification merchant',country:'IN',deviceId:'email-test',phoneNumber:'+12025550123',failedAttempts:0,occurredAt:new Date().toISOString(),ipAddress:'203.0.113.238'};
  const response=await admin.request('/transactions',{method:'POST',headers:{'Idempotency-Key':eventId},body:payload});assert.equal(response.status,202);
  for(let i=0;i<40;i++){const row=(await admin.request('/transactions/'+response.data.id)).data;if(row.status==='SCORED')return {row,payload};await new Promise(r=>setTimeout(r,300));}
  throw new Error('Scoring timeout');
@@ -86,3 +86,4 @@ try {
  await setRule({enabled:rule.enabled,points:rule.points,matchValues:rule.match_values});
  await save({enabled:completed,minimumClassification:'HIGH_RISK',recipients:recipient});
 }
+

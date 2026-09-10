@@ -26,7 +26,7 @@ assert.equal((await admin.request('/notifications/settings')).data.enabled,false
 
 // A simple everyday-spending transaction should reach SCORED via the queue consumer.
 const id='queue-smoke-'+randomUUID();
-const payload={eventId:id,accountId:'queue-smoke-'+randomUUID(),amountMinor:50000,currency:'INR',merchant:'Queue smoke merchant',country:'IN',deviceId:'queue-smoke-device',failedAttempts:0,occurredAt:new Date().toISOString()};
+const payload={eventId:id,accountId:'queue-smoke-'+randomUUID(),amountMinor:50000,currency:'INR',merchant:'Queue smoke merchant',country:'IN',deviceId:'queue-smoke-device',phoneNumber:'+12025550123',failedAttempts:0,occurredAt:new Date().toISOString()};
 const post=body=>admin.request('/transactions',{method:'POST',headers:{'Idempotency-Key':id},body});
 const accepted=await post(payload);
 assert.equal(accepted.status,202);
@@ -49,3 +49,4 @@ assert.equal(alerts.length,1,'exactly one alert even with both workers active');
 
 console.log('PASS: queue-mode consumer scores transactions end-to-end; no duplicate alerts with both workers active.');
 console.log('NOTE: dead-letter/retry behavior is not exercised by this script - see docs/plans/02-messaging-rabbitmq.md for the manual verification steps (stop the API mid-processing, or use the RabbitMQ management UI at :15672 to inspect transactions.ingested.dlq).');
+

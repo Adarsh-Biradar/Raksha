@@ -27,7 +27,7 @@ const account='hold-'+randomUUID();
 const phone='+12025550999';
 async function mail(enabled){const s=(await admin.request('/notifications/settings')).data;assert.equal((await admin.request('/notifications/settings',{method:'PUT',body:{version:s.version,enabled,minimumClassification:s.minimum_classification,recipients:s.recipients}})).status,200);}
 async function config(value){const r=(await admin.request('/rules/catalog')).data.find(r=>r.code===rule.code);assert.equal((await admin.request('/rules/catalog/'+rule.code,{method:'PUT',body:{version:r.version,...value}})).status,200);}
-function payload(extra={}){return {eventId:'hold-'+randomUUID(),accountId:account,amountMinor:10000,currency:'INR',merchant:'Account hold test',country:'IN',deviceId:'hold-device',failedAttempts:0,occurredAt:new Date().toISOString(),...extra};}
+function payload(extra={}){return {eventId:'hold-'+randomUUID(),accountId:account,amountMinor:10000,currency:'INR',merchant:'Account hold test',country:'IN',deviceId:'hold-device',phoneNumber:'+12025550123',failedAttempts:0,occurredAt:new Date().toISOString(),...extra};}
 async function submit(p){const r=await admin.request('/transactions',{method:'POST',body:p,headers:{'Idempotency-Key':p.eventId}});assert.equal(r.status,202,JSON.stringify(r.data));return r.data;}
 async function terminal(id){for(let i=0;i<60;i++){const response=await admin.request('/transactions/'+id);assert.equal(response.status,200,JSON.stringify(response.data));const r=response.data;if(r.status!=='PENDING')return r;await new Promise(r=>setTimeout(r,250));}throw Error('Timeout');}
 async function action(c,a,body){return c.request('/alerts/'+a.id+'/action',{method:'POST',body:{version:a.version,...body}});}
@@ -73,5 +73,6 @@ try {
  if(openCase){if(!openCase.assignee)openCase=(await action(analyst,openCase,{action:'CLAIM'})).data;await action(analyst,openCase,{action:'RESOLVE',reason:'Test cleanup',outcome:'FALSE_POSITIVE'});}
  await config({enabled:rule.enabled,points:rule.points,matchValues:rule.match_values});await mail(emails.enabled);
 }
+
 
 

@@ -171,3 +171,7 @@ The triggering investigation shows Account held. Open it, Assign to me, record a
 Create transaction and transaction details show the hold; Transactions supports a Blocked filter. Hold creation, blocked attempts and release are audited. Blocked attempts are excluded from behavioral and repeated-amount history. Flyway V5 adds the tables/status; historical 100-point assessments do not retroactively create holds.
 
 Validation: `node scripts/account-holds-smoke.mjs` exercises the local Docker stack, pauses/restores email and the test phone rule, and leaves synthetic records and audit history. Tests cover blocking at ingestion and in the queue, concurrent submissions, account isolation, idempotency conflicts, assignment/authorization, both resolution outcomes, no replay and re-holding. Deploy updated API and web images together.
+
+## Razorpay sandbox payments
+
+Create a transaction, wait for risk assessment, then use Pay in test mode. Payments tracks provider state separately from risk; signed webhooks, duplicate protection and reconciliation support recovery. Test keys are required; live keys are disabled. See [setup, demo, limitations and migration preflight](docs/RAZORPAY.md).

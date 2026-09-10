@@ -29,7 +29,7 @@ const body=(r,extra={})=>({version:r.version,enabled:r.enabled,points:r.points,m
 async function update(code,extra){const current=(await admin.request('/rules/catalog')).data.find(r=>r.code===code);const response=await admin.request('/rules/catalog/'+code,{method:'PUT',body:body(current,extra)});assert.equal(response.status,200,JSON.stringify(response.data));return response.data;}
 async function txn(extra={}){
  const eventId='rules-'+randomUUID();
- const payload={eventId,accountId:'rules-'+randomUUID(),amountMinor:10000,currency:'INR',merchant:'Rule Test Merchant',country:'IN',deviceId:'rule-device',failedAttempts:0,occurredAt:new Date().toISOString(),...extra};
+ const payload={eventId,accountId:'rules-'+randomUUID(),amountMinor:10000,currency:'INR',merchant:'Rule Test Merchant',country:'IN',deviceId:'rule-device',phoneNumber:'+12025550123',failedAttempts:0,occurredAt:new Date().toISOString(),...extra};
  const response=await analyst.request('/transactions',{method:'POST',headers:{'Idempotency-Key':eventId},body:payload});assert.equal(response.status,202,JSON.stringify(response.data));
  for(let i=0;i<40;i++){const row=(await analyst.request('/transactions/'+response.data.id)).data;if(row.status==='SCORED')return {row,payload};await new Promise(r=>setTimeout(r,300));}throw new Error('Scoring timed out');
 }
@@ -73,3 +73,4 @@ try {
 } finally {
  for(const r of original)await update(r.code,{enabled:r.enabled,points:r.points,matchValues:r.match_values});
 }
+

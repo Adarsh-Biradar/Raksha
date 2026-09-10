@@ -32,7 +32,7 @@ public class FraudService {
   @NotNull @Pattern(regexp="[A-Z]{2}") String country,
   @NotBlank @Pattern(regexp="[A-Za-z0-9_-]{1,80}") String deviceId,
   @Min(0) @Max(100) int failedAttempts,
-  @NotNull Instant occurredAt, @Size(max=45) String ipAddress, @Size(max=40) String phoneNumber) {
+  @NotNull Instant occurredAt, @Size(max=45) String ipAddress, @NotBlank(message="Mobile number with country code is required") @Size(max=40) String phoneNumber) {
   public Input { ipAddress=SignalValues.ip(ipAddress); phoneNumber=SignalValues.phone(phoneNumber); }
   public Input(String eventId,String accountId,long amountMinor,String currency,String merchant,String country,String deviceId,int failedAttempts,Instant occurredAt){this(eventId,accountId,amountMinor,currency,merchant,country,deviceId,failedAttempts,occurredAt,null,null);}
  }
@@ -88,4 +88,5 @@ public class FraudService {
   return Map.of("accountId",account,"transactionIds",ids,"scenario",scenario);
  }
 }
+
 

@@ -9,3 +9,6 @@ target/
 
 # Local deployment bundle containing real credentials
 raksha-k8s.private.yml
+
+# Extracted runtime dependencies and isolated payment preview
+tmp/payments-check/

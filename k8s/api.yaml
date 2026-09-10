@@ -59,6 +59,24 @@ spec:
             - name: DEMO_PASSWORD
               valueFrom:
                 secretKeyRef: { name: raksha-secrets, key: DEMO_PASSWORD }
+            - name: RAZORPAY_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: raksha-payments
+                  key: RAZORPAY_KEY_ID
+                  optional: true
+            - name: RAZORPAY_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: raksha-payments
+                  key: RAZORPAY_KEY_SECRET
+                  optional: true
+            - name: RAZORPAY_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: raksha-payments
+                  key: RAZORPAY_WEBHOOK_SECRET
+                  optional: true
             - name: SMTP_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -115,3 +133,4 @@ spec:
         - name: temporary
           emptyDir:
             sizeLimit: 256Mi
+

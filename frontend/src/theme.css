@@ -233,3 +233,4 @@ input::placeholder,textarea::placeholder{color:#809486}
 
 .lab-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:12px;margin:18px 0}.lab-summary>div{border:1px solid #dce5df;border-radius:10px;padding:14px}.lab-summary strong{display:block;font-size:26px;margin-top:6px}[data-theme=dark] .lab-summary>div{border-color:#2a3b30}.lab-summary small{display:block}
 .badge.blocked { background: #fee2e2; color: #991b1b; }
+.payment-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border, #64756c); overflow-wrap: anywhere; }

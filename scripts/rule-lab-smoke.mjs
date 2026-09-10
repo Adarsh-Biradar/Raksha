@@ -29,7 +29,7 @@ async function configure(extra){const s=(await admin.request('/rules/lab')).data
 const account='lab-'+randomUUID();let index=0;
 async function create(extra={}){
  const eventId='lab-'+randomUUID();
- const payload={eventId,accountId:account,amountMinor:10000,currency:'INR',merchant:'Rule Lab test merchant',country:'IN',deviceId:'lab-device',failedAttempts:0,occurredAt:new Date(Date.now()-120000+(index++*1000)).toISOString(),...extra};
+ const payload={eventId,accountId:account,amountMinor:10000,currency:'INR',merchant:'Rule Lab test merchant',country:'IN',deviceId:'lab-device',phoneNumber:'+12025550123',failedAttempts:0,occurredAt:new Date(Date.now()-120000+(index++*1000)).toISOString(),...extra};
  const r=await admin.request('/transactions',{method:'POST',headers:{'Idempotency-Key':eventId},body:payload});assert.equal(r.status,202,JSON.stringify(r.data));
  for(let i=0;i<50;i++){const row=(await admin.request('/transactions/'+r.data.id)).data;if(row.status==='SCORED')return row;if(row.status==='FAILED')throw new Error('Scoring failed');await new Promise(r=>setTimeout(r,250));}throw new Error('Scoring timeout');
 }
@@ -89,3 +89,4 @@ try{
  for(const rule of rules)await setRule(rule,rule.enabled);
  await mail(emails.enabled);
 }
+

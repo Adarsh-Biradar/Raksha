@@ -25,7 +25,7 @@ assert.equal((await admin.request('/notifications/settings')).data.enabled,false
 assert.equal((await viewer.request('/simulations',{method:'POST',body:{scenario:'NORMAL'}})).status,403,'viewer cannot mutate');
 assert.equal((await analyst.request('/rules')).status,403,'analyst cannot configure policy');
 const id='test-'+randomUUID();
-const payload={eventId:id,accountId:'smoke-'+randomUUID(),amountMinor:125000,currency:'INR',merchant:'Test merchant',country:'IN',deviceId:'test-device',failedAttempts:0,occurredAt:new Date().toISOString()};
+const payload={eventId:id,accountId:'smoke-'+randomUUID(),amountMinor:125000,currency:'INR',merchant:'Test merchant',country:'IN',deviceId:'test-device',phoneNumber:'+12025550123',failedAttempts:0,occurredAt:new Date().toISOString()};
 const post=body=>admin.request('/transactions',{method:'POST',headers:{'Idempotency-Key':id},body});
 const [first,second]=await Promise.all([post(payload),post(payload)]);
 assert.equal(first.status,202);assert.equal(second.status,202);assert.equal(first.data.id,second.data.id);assert.notEqual(first.data.duplicate,second.data.duplicate,'concurrent duplicate creates one event');
@@ -57,3 +57,4 @@ assert.equal((await admin.request('/transactions/'+randomUUID())).status,404);
 
 for(const endpoint of ['/dashboard','/transactions','/rules','/jobs']){assert.equal((await admin.request(endpoint)).status,200,'dashboard support endpoint '+endpoint);}
 console.log('PASS: authentication, CSRF, roles, concurrent idempotency, validation, scoring, explanations, case workflow, audit, dashboard, transaction list, policy and recovery endpoints.');
+
