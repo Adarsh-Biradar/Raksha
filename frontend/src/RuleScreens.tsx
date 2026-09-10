@@ -26,7 +26,7 @@ export function CreateTransaction({request,merchants}:{request:Request;merchants
  const initial=()=>({merchant:'',accountId:'',amount:'',country:'IN',deviceId:'',ipAddress:'',phoneNumber:'',failedAttempts:'0'});
  const [form,setForm]=useState(initial),[submitted,setSubmitted]=useState<Row|null>(null),[result,setResult]=useState<Row|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  useEffect(()=>{
-  if(!result?.id||result.status==='SCORED'||result.status==='FAILED')return;
+  if(!result?.id||result.status==='SCORED'||result.status==='FAILED'||result.status==='BLOCKED')return;
   let live=true;
   const poll=async()=>{try{const row=await request('/transactions/'+result.id);if(live){setResult(row);setError('')}}catch(e){if(live)setError((e as Error).message)}};
   const timer=setInterval(poll,1500);poll();return()=>{live=false;clearInterval(timer)};
@@ -44,7 +44,7 @@ export function CreateTransaction({request,merchants}:{request:Request;merchants
     setSubmitted(payload);
    }
    const accepted=await request('/transactions',{method:'POST',headers:{'Idempotency-Key':payload.eventId},body:JSON.stringify(payload)});
-   setResult(accepted);
+   setResult(await request('/transactions/'+accepted.id));
   }catch(e){setError((e as Error).message);if((e as {status?:number}).status===400)setSubmitted(null)}finally{setBusy(false)}
  }
  const fields=[['merchant','Merchant name','text'],['accountId','Customer account ID','text'],['amount','Amount (INR)','text'],['country','Country code','text'],['deviceId','Device ID','text'],['ipAddress','Customer IPv4 address (optional)','text'],['phoneNumber','Customer phone with country code (optional)','tel'],['failedAttempts','Preceding failed attempts','number']];
@@ -55,5 +55,6 @@ export function CreateTransaction({request,merchants}:{request:Request;merchants
  {error&&<p className="message error" role="alert">{error}</p>}
  {!result&&<button className="button primary" disabled={busy}>{busy?'Submitting…':submitted?'Retry same transaction':'Create transaction'}</button>}
  {submitted&&<><p className="muted small">Event: {submitted.eventId}. Retrying reuses this event to prevent duplicates.</p><button type="button" className="button secondary" disabled={busy} onClick={()=>{setSubmitted(null);setResult(null);setError('');setForm(initial())}}>Start a new transaction</button></>}
- </form><section className="panel settings-form" aria-live="polite"><h2>Rule evaluation</h2>{!result?<p className="muted">Submit a transaction to see its processing status, score and reasons here.</p>:<><span className={'badge '+(result.classification||result.status).toLowerCase()}>{result.classification||result.status}</span><h3>{result.merchant||submitted?.merchant}</h3><p>Risk score: <strong>{result.score??'Pending'}</strong> / 100</p><p>Policy version: {result.policy_version??'Pending'}</p>{reasons.map((r,i)=><p key={i}>{r}</p>)}{result.status==='PENDING'&&<p>Waiting for the scoring worker…</p>}{result.status==='FAILED'&&<p>Processing failed. An administrator can inspect the recovery queue.</p>}<p className="muted small">A risk score prioritizes investigation. This sandbox does not transfer or decline real money.</p></>}</section></div>
+ </form><section className="panel settings-form" aria-live="polite"><h2>Rule evaluation</h2>{!result?<p className="muted">Submit a transaction to see its processing status, score and reasons here.</p>:<><span className={'badge '+(result.classification||result.status).toLowerCase()}>{result.classification||result.status}</span><h3>{result.merchant||submitted?.merchant}</h3>{result.account_holds?.length>0&&<p className="message error">Account on hold. Further transactions are blocked until the triggering investigation is resolved.</p>}<p>Risk score: <strong>{result.score??(result.status==='BLOCKED'?'Not scored':'Pending')}</strong> / 100</p><p>Policy version: {result.policy_version??'Pending'}</p>{reasons.map((r,i)=><p key={i}>{r}</p>)}{result.status==='PENDING'&&<p>Waiting for the scoring worker…</p>}{result.status==='FAILED'&&<p>Processing failed. An administrator can inspect the recovery queue.</p>}<p className="muted small">A risk score prioritizes investigation. This sandbox does not transfer or decline real money.</p></>}</section></div>
 }
+

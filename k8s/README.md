@@ -166,4 +166,4 @@ Uncomment tls in both Ingress resources and set COOKIE_SECURE to "true" in your 
 See the [Kubernetes Ingress documentation](https://kubernetes.io/docs/concepts/services-networking/ingress/) for controller, class and TLS requirements. Local rendering does not verify public DNS, routing or certificates on a live cluster.
 
 
-SMTP configuration and recipient setup: see [Email alerts](../docs/EMAIL_ALERTS.md). The single YAML includes optional SMTP secret fields; do not commit actual app passwords.
+SMTP configuration and recipient setup: see [Email alerts](../docs/EMAIL_ALERTS.md). Use k8s/setup-smtp.ps1 to configure SMTP separately; do not commit actual app passwords.

@@ -230,3 +230,6 @@ input::placeholder,textarea::placeholder{color:#809486}
 .settings-form .small{overflow-wrap:anywhere}
 @media(max-width:700px){.rule-grid{grid-template-columns:1fr}.rule-card{padding:16px}.rule-actions .button{flex:1}}
 .smtp-details{margin:20px 0}.smtp-details>div{padding:10px 0;border-bottom:1px solid #dce5df}.smtp-details dd{margin:4px 0 0;overflow-wrap:anywhere}[data-theme=dark] .smtp-details>div{border-color:#2a3b30}
+
+.lab-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:12px;margin:18px 0}.lab-summary>div{border:1px solid #dce5df;border-radius:10px;padding:14px}.lab-summary strong{display:block;font-size:26px;margin-top:6px}[data-theme=dark] .lab-summary>div{border-color:#2a3b30}.lab-summary small{display:block}
+.badge.blocked { background: #fee2e2; color: #991b1b; }

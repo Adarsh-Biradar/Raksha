@@ -6,3 +6,6 @@ dist/
 target/
 *.tsbuildinfo
 *.log
+
+# Local deployment bundle containing real credentials
+raksha-k8s.private.yml

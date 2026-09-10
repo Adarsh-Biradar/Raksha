@@ -157,3 +157,17 @@ Set `WORKER_MODE=queue` in `.env` (default is `poll`, unchanged behavior) to add
 The existing DB-poll worker (`RiskWorker`) keeps running even in queue mode as a safety net — a broker outage degrades to poll-only processing rather than stalling ingestion. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#event-driven-processing-optional) for the full design (transactional outbox, bounded retry, dead-letter handling) and [docs/plans/02-messaging-rabbitmq.md](docs/plans/02-messaging-rabbitmq.md) for the original plan.
 
 Tests: `scripts/messaging-smoke.mjs` (run with `WORKER_MODE=queue` set and the stack restarted) checks a transaction is scored end-to-end via the queue consumer and that no duplicate alert is created with both workers active. Not run in this environment (no Docker available in this sandbox) — run it yourself with `node scripts/messaging-smoke.mjs` before relying on this. Dead-letter/retry behavior itself is not covered by an automated test; verify manually via the RabbitMQ management UI or by temporarily breaking scoring (e.g. stop the database) and confirming a job reaches `transactions.ingested.dlq` and the transaction becomes `FAILED`.
+
+## Rule Lab
+
+Administrators can now detect repeated equal-amount payments, preview historical impact, and observe a rule in shadow mode before activation. Open **Rule Lab** in the navigation. The new rule starts Off. See the [demo steps, API and evaluation boundaries](docs/RULE_LAB.md).
+
+## Account holds after a 100-point assessment
+
+New assessments scoring exactly 100 place the Customer account ID on hold. This is a risk score, not an INR amount. Subsequent attempts are stored with status BLOCKED and no score, and are not queued. The worker also checks holds before scoring already queued transactions. Account locks serialize ingestion, scoring and case resolution. Other account IDs remain independent. This is a sandbox control and does not freeze a real bank account.
+
+The triggering investigation shows Account held. Open it, Assign to me, record an outcome and evidence, then Resolve case. Only its assigned administrator/analyst can resolve it. Resolution releases that case's hold for either outcome; any other active hold still applies. Blocked attempts never replay, including idempotent retries: create a fresh event after release. A new 100-point assessment can hold the account again.
+
+Create transaction and transaction details show the hold; Transactions supports a Blocked filter. Hold creation, blocked attempts and release are audited. Blocked attempts are excluded from behavioral and repeated-amount history. Flyway V5 adds the tables/status; historical 100-point assessments do not retroactively create holds.
+
+Validation: `node scripts/account-holds-smoke.mjs` exercises the local Docker stack, pauses/restores email and the test phone rule, and leaves synthetic records and audit history. Tests cover blocking at ingestion and in the queue, concurrent submissions, account isolation, idempotency conflicts, assignment/authorization, both resolution outcomes, no replay and re-holding. Deploy updated API and web images together.
