@@ -40,3 +40,24 @@ Java/React builds and the existing fraud/rules smoke tests passed. Two authorize
 scripts/email-smoke.mjs deliberately requires SEND_TEST_MAIL=true because it sends two real messages to SMTP_USERNAME. Run it only against the local sandbox with authorization for that recipient. Existing fraud smoke scripts require automatic notifications to be paused to avoid email from their synthetic transactions.
 
 References: [Google's SMTP settings](https://support.google.com/mail/answer/7104828?hl=en-uk), [Spring Boot mail configuration and timeouts](https://docs.spring.io/spring-boot/reference/io/email.html).
+
+
+## Copy the local Gmail configuration to production
+
+The manifests already use smtp.gmail.com:587 with required STARTTLS. SMTP_USERNAME and SMTP_FROM should be adarshbiradar888@gmail.com. The app password remains only in your private .env and the cluster Secret, not in the image or repository.
+
+After applying the production application manifests and creating raksha-secrets with that environment's database/login credentials, run from the project root:
+
+```powershell
+kubectl config get-contexts
+.\k8s\setup-smtp.ps1 -Context YOUR_PRODUCTION_CONTEXT
+kubectl --context YOUR_PRODUCTION_CONTEXT -n raksha rollout status deployment/raksha-api --timeout=180s
+```
+
+Replace YOUR_PRODUCTION_CONTEXT with the real context name. The helper copies only the three SMTP credential fields from local .env using a dedicated server-side field manager. Existing database/login credentials are preserved. It restarts the API to load the new environment. Use -EnvFile with another private file if deploying from a different machine.
+
+In production, sign in as admin, open Email alerts, add adarshbiradar888@gmail.com (and any management addresses), choose severity, enable, save, then send a test. Recipient settings live in each environment's database and are not copied by pushing code or images. Port 587 outbound must be reachable. Successful SMTP acceptance is not a guarantee of inbox delivery.
+
+Do not apply a filled Secret manifest from source control. The single deployment template now omits SMTP values so ordinary applies do not intentionally reset SMTP credentials. For initial single-file deployment, fill only its database/login placeholders in a private deployment copy, then run setup-smtp.ps1. For the modular flow, setup-secrets.ps1 provisions all values from the chosen environment file; use setup-smtp.ps1 for SMTP-only updates on an existing production installation.
+
+No production context was selected or modified while preparing this setup.

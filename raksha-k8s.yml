@@ -18,12 +18,9 @@ metadata:
   namespace: raksha
 type: Opaque
 stringData:
-  # Optional SMTP credentials: populate privately before enabling email alerts.
-  SMTP_USERNAME: ""
-  SMTP_PASSWORD: ""
-  SMTP_FROM: ""
-  DATABASE_PASSWORD: "raksha@123"
-  DEMO_PASSWORD: "hello@123"
+  # Configure SMTP separately with k8s/setup-smtp.ps1 after deployment.
+  DATABASE_PASSWORD: "REPLACE_WITH_PRODUCTION_DATABASE_PASSWORD"
+  DEMO_PASSWORD: "REPLACE_WITH_PRODUCTION_LOGIN_PASSWORD_MIN_10_CHARACTERS"
 ---
 
 apiVersion: v1
