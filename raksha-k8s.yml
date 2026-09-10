@@ -18,8 +18,8 @@ metadata:
   namespace: raksha
 type: Opaque
 stringData:
-  DATABASE_PASSWORD: "REPLACE_WITH_YOUR_DATABASE_PASSWORD"
-  DEMO_PASSWORD: "REPLACE_WITH_YOUR_DEMO_PASSWORD_MIN_16_CHARACTERS"
+  DATABASE_PASSWORD: "raksha@123"
+  DEMO_PASSWORD: "hello@123"
 ---
 
 apiVersion: v1

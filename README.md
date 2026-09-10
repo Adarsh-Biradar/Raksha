@@ -119,3 +119,18 @@ The frontend and backend have separate Dockerfiles; there is no root Dockerfile.
 For cluster deployment, see [the Kubernetes guide](k8s/README.md). It includes PostgreSQL persistent storage, Java and React/Nginx deployments, internal services, probes, resource limits, and a PowerShell helper that provisions secrets from your local .env. Enable/select your intended Kubernetes context before following the deployment commands.
 
 Validation: Compose configuration, Kubernetes manifest rendering, and the secret helper's PowerShell syntax passed. Both newly named images were built locally using the existing compiled artifacts. No images were pushed and no cluster deployment was performed; this machine had no configured Kubernetes context.
+
+## Managed rules and merchant transactions
+
+Sign in as an administrator and open **Rules & settings** to view all eight checks: large payment, unusual amount, unfamiliar device, unfamiliar country, rapid payments, failed attempts, blocked IPv4, and blocked phone. Each card supports edited risk points and Pause/Resume. The Risk policy form below controls amount/velocity/classification thresholds. Rule updates reject stale versions and increment the global policy version; the worker takes a consistent policy/rule snapshot. Existing assessments are not recalculated. Reload rules to fetch changes from another administrator.
+
+The two block lists start empty. Add one IPv4 address/CIDR range or internationally formatted phone number per line (maximum 200 entries). Phone numbers require a plus sign and country code; spaces, hyphens and parentheses normalize away. IPv6 is not currently supported. These are caller-supplied sandbox signals, not verified IP ownership or phone identity. Matching raises the configured score; it does not move or decline real funds.
+
+Administrators and analysts can open **Create transaction**, enter a merchant name (recent merchants are suggested), customer account ID, INR amount, country, device, optional IP/phone, and preceding failed-attempt count. This is transaction entry by merchant name, not a merchant onboarding/account-management subsystem. The screen converts INR to integer paise, generates event time/idempotency ID, submits to the durable queue and polls the result with explanations. A retry reuses the submitted event. Input validation errors allow editing; ambiguous network failures keep the original payload for retry. Starting another transaction creates a new event, so inspect transaction history first if a prior submission's outcome is uncertain.
+
+API additions (session/CSRF requirements unchanged):
+- GET /api/rules/catalog: administrator-only rule configurations.
+- PUT /api/rules/catalog/{code}: administrator-only body {version, enabled, points, matchValues}; use the latest version from GET. matchValues is a newline-delimited string, empty for non-list checks.
+- POST /api/transactions: additionally accepts optional ipAddress and phoneNumber. All previous required fields and the Idempotency-Key header remain supported.
+
+Flyway V2 adds the rule catalog and nullable transaction signal fields without clearing existing data. Deploy the updated API and web images together. Tests: Java package and React production build passed; scripts/smoke.mjs and scripts/rules-smoke.mjs passed against Docker. The rules test creates synthetic transactions, restores the original rule configurations, and leaves their audit/version history intact. Browser verification covered rule visibility, merchant submission through scoring, night mode and a 390px phone viewport. Container images were rebuilt locally; publishing and Kubernetes rollout are separate steps.
