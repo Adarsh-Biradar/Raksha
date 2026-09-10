@@ -139,3 +139,7 @@ Flyway V2 adds the rule catalog and nullable transaction signal fields without c
 ## Management email alerts
 
 Administrators can now open **Email alerts** to manage recipients, select severity, pause/resume email, send a test and inspect retry/delivery status. SMTP uses server-side environment credentials and a durable database outbox. See [email setup and operations](docs/EMAIL_ALERTS.md). Pause automatic notifications before running synthetic fraud smoke tests. Local Gmail sending was verified; Kubernetes SMTP secrets still need to be provisioned in the target cluster.
+
+## Rule Lab
+
+Administrators can now detect repeated equal-amount payments, preview historical impact, and observe a rule in shadow mode before activation. Open **Rule Lab** in the navigation. The new rule starts Off. See the [demo steps, API and evaluation boundaries](docs/RULE_LAB.md).

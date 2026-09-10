@@ -8,7 +8,7 @@ The API reads SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD and SMTP_FROM f
 
 Update .env privately, then recreate the API container to apply changes. Existing notification recipient/settings records are stored in PostgreSQL and survive image updates. Database and login passwords are independent of SMTP credentials.
 
-In Kubernetes, both manifest formats reference the optional SMTP keys in raksha-secrets; the ConfigMap supplies host/port. The secret helper imports the SMTP values from local .env into the explicitly selected cluster. The single-file bundle contains empty SMTP fields to fill privately. After changing Secrets, restart the API deployment to reload its environment. Enable notifications in the UI after the deployed SMTP credentials and recipients are configured.
+In Kubernetes, both manifest formats reference the optional SMTP keys in raksha-secrets; the ConfigMap supplies host/port. The secret helper imports the SMTP values from local .env into the explicitly selected cluster. The single-file bundle references SMTP keys provisioned separately with k8s/setup-smtp.ps1. After changing Secrets, restart the API deployment to reload its environment. Enable notifications in the UI after the deployed SMTP credentials and recipients are configured.
 
 ## How delivery works
 
@@ -58,6 +58,6 @@ Replace YOUR_PRODUCTION_CONTEXT with the real context name. The helper copies on
 
 In production, sign in as admin, open Email alerts, add adarshbiradar888@gmail.com (and any management addresses), choose severity, enable, save, then send a test. Recipient settings live in each environment's database and are not copied by pushing code or images. Port 587 outbound must be reachable. Successful SMTP acceptance is not a guarantee of inbox delivery.
 
-Do not apply a filled Secret manifest from source control. The single deployment template now omits SMTP values so ordinary applies do not intentionally reset SMTP credentials. For initial single-file deployment, fill only its database/login placeholders in a private deployment copy, then run setup-smtp.ps1. For the modular flow, setup-secrets.ps1 provisions all values from the chosen environment file; use setup-smtp.ps1 for SMTP-only updates on an existing production installation.
+Do not apply a filled Secret manifest from source control. The single deployment template includes sender values and an SMTP_PASSWORD placeholder. Replace it in a private deployment copy before applying; reapplying the unfilled template can overwrite working SMTP credentials. For initial single-file deployment, fill the database/login and SMTP password placeholders in a private deployment copy. setup-smtp.ps1 remains available for SMTP-only updates. For the modular flow, setup-secrets.ps1 provisions all values from the chosen environment file; use setup-smtp.ps1 for SMTP-only updates on an existing production installation.
 
 No production context was selected or modified while preparing this setup.

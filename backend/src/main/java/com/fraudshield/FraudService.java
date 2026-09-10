@@ -14,8 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class FraudService {
- final JdbcTemplate db; final ObjectMapper json;
- public FraudService(JdbcTemplate db,ObjectMapper json) {this.db=db;this.json=json;}
+ final JdbcTemplate db; final ObjectMapper json; final AccountHolds holds;
+ public FraudService(JdbcTemplate db,ObjectMapper json,AccountHolds holds) {this.db=db;this.json=json;this.holds=holds;}
  @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
  public record Input(
   @NotBlank @Pattern(regexp="[A-Za-z0-9_-]{1,100}") String eventId,
@@ -42,7 +42,7 @@ public class FraudService {
   String hash;
   try {hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encode(input).getBytes(StandardCharsets.UTF_8)));}
   catch(Exception e){throw new IllegalStateException(e);}
-  UUID id=UUID.randomUUID();
+  holds.lock(input.accountId()); UUID id=UUID.randomUUID();
   int inserted=db.update("""
    INSERT INTO transactions(id,event_id,payload_hash,account_id,amount_minor,currency,merchant,country,device_id,failed_attempts,occurred_at,late_event,ip_address,phone_number)
    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING
@@ -50,8 +50,8 @@ public class FraudService {
   Map<String,Object> row=db.queryForMap("SELECT id,status,payload_hash FROM transactions WHERE event_id=?",input.eventId());
   if(!hash.equals(row.get("payload_hash"))) throw new ResponseStatusException(HttpStatus.CONFLICT,"Event ID already used with a different payload");
   if(inserted==1) {
-   db.update("INSERT INTO scoring_jobs(id,transaction_id) VALUES(?,?)",UUID.randomUUID(),id);
-   audit(actor,"TRANSACTION_ACCEPTED",id,"event="+input.eventId());
+   if(!holds.block(id,input.accountId(),actor,this)) db.update("INSERT INTO scoring_jobs(id,transaction_id) VALUES(?,?)",UUID.randomUUID(),id);
+   audit(actor,"TRANSACTION_ACCEPTED",id,"event="+input.eventId()); row=db.queryForMap("SELECT id,status,payload_hash FROM transactions WHERE id=?",id);
   }
   return Map.of("id",row.get("id"),"status",row.get("status"),"duplicate",inserted==0);
  }
@@ -77,3 +77,4 @@ public class FraudService {
   return Map.of("accountId",account,"transactionIds",ids,"scenario",scenario);
  }
 }
+

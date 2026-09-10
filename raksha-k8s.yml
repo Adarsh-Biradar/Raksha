@@ -1,5 +1,5 @@
 # Raksha: complete single-file Kubernetes deployment.
-# Replace BOTH Secret placeholders before applying. Never commit real passwords.
+# Replace the database, login and SMTP password placeholders before applying. Never commit real passwords.
 # For existing storage, use its current password; this does not reset stored passwords.
 # Images must be available to the cluster. Requires a default StorageClass.
 # Deploy: kubectl apply -f raksha-k8s.yml
@@ -18,7 +18,10 @@ metadata:
   namespace: raksha
 type: Opaque
 stringData:
-  # Configure SMTP separately with k8s/setup-smtp.ps1 after deployment.
+  # Gmail SMTP credentials. Fill the app password only in your private deployment copy.
+  SMTP_USERNAME: "adarshbiradar888@gmail.com"
+  SMTP_FROM: "adarshbiradar888@gmail.com"
+  SMTP_PASSWORD: "REPLACE_WITH_GMAIL_APP_PASSWORD"
   DATABASE_PASSWORD: "REPLACE_WITH_PRODUCTION_DATABASE_PASSWORD"
   DEMO_PASSWORD: "REPLACE_WITH_PRODUCTION_LOGIN_PASSWORD_MIN_10_CHARACTERS"
 ---

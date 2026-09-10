@@ -13,8 +13,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController @RequestMapping("/api")
 public class ApiController {
- final JdbcTemplate db; final FraudService service;
- public ApiController(JdbcTemplate db,FraudService service){this.db=db;this.service=service;}
+ final JdbcTemplate db; final FraudService service; final AccountHolds holds;
+ public ApiController(JdbcTemplate db,FraudService service,AccountHolds holds){this.db=db;this.service=service;this.holds=holds;}
  @GetMapping("/csrf") Map<String,String> csrf(CsrfToken token){return Map.of("token",token.getToken(),"headerName",token.getHeaderName());}
  @GetMapping("/auth/me") Map<String,Object> me(Authentication a){return Map.of("email",a.getName(),"role",a.getAuthorities().iterator().next().getAuthority().replace("ROLE_",""));}
  @PostMapping("/transactions") ResponseEntity<?> ingest(@Valid @RequestBody FraudService.Input input,@RequestHeader("Idempotency-Key") String key,Principal p){
@@ -32,7 +32,7 @@ public class ApiController {
   return db.queryForList(sql,args).stream().findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Record not found"));
  }
  @GetMapping("/transactions/{id}") Map<String,Object> transaction(@PathVariable UUID id){
-  Map<String,Object> result=one("SELECT * FROM transactions WHERE id=?",id); result.remove("payload_hash");return result;
+  Map<String,Object> result=one("SELECT * FROM transactions WHERE id=?",id); result.remove("payload_hash");result.put("account_holds",holds.active((String)result.get("account_id")));return result;
  }
  @GetMapping("/dashboard") Map<String,Object> dashboard(){
   Map<String,Object> result=new HashMap<>(db.queryForMap("""
@@ -48,11 +48,13 @@ public class ApiController {
   return result;
  }
  @GetMapping("/alerts") List<Map<String,Object>> alerts(){return db.queryForList("""
-  SELECT a.*,t.account_id,t.amount_minor,t.merchant,t.score,t.classification,t.explanation
+  SELECT a.*,t.account_id,t.amount_minor,t.merchant,t.score,t.classification,t.explanation,EXISTS(SELECT 1 FROM account_holds h WHERE h.account_id=t.account_id AND h.released_at IS NULL) account_held
   FROM alerts a JOIN transactions t ON t.id=a.transaction_id ORDER BY (a.status='RESOLVED'),t.score DESC,a.created_at DESC LIMIT 100
   """);}
  public record CaseUpdate(@NotNull @Min(0) Integer version,@NotBlank String action,@Size(max=2000) String reason,@Size(max=50) String outcome){}
  @PostMapping("/alerts/{id}/action") @Transactional Map<String,Object> action(@PathVariable UUID id,@Valid @RequestBody CaseUpdate input,Principal actor){
+  String account=(String)one("SELECT t.account_id FROM alerts a JOIN transactions t ON t.id=a.transaction_id WHERE a.id=?",id).get("account_id");
+  holds.lock(account);
   Map<String,Object> alert=one("SELECT * FROM alerts WHERE id=? FOR UPDATE",id);
   if(!alert.get("version").equals(input.version())) throw new ResponseStatusException(HttpStatus.CONFLICT,"Case changed; refresh and retry");
   if("RESOLVED".equals(alert.get("status"))) throw new ResponseStatusException(HttpStatus.CONFLICT,"Case is already resolved");
@@ -64,6 +66,7 @@ public class ApiController {
    if(input.reason()==null||input.reason().isBlank()||input.outcome()==null||!Set.of("CONFIRMED_FRAUD","FALSE_POSITIVE").contains(input.outcome()))
     throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"An outcome and resolution reason are required");
    db.update("UPDATE alerts SET status='RESOLVED',outcome=?,resolution=?,resolved_at=now(),version=version+1 WHERE id=?",input.outcome(),input.reason(),id);
+   holds.release(id,account,actor.getName(),service);
   } else throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unknown case action");
   service.audit(actor.getName(),"CASE_"+input.action(),id,input.reason()==null?"":input.reason());
   return one("SELECT * FROM alerts WHERE id=?",id);
@@ -96,3 +99,5 @@ public class ApiController {
   service.audit(actor.getName(),"JOB_RETRIED",id,"Manual retry");return Map.of("ok",true);
  }
 }
+
+
