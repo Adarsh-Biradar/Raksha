@@ -20,7 +20,8 @@ public class NotificationController {
   return result;
  }
  public record Settings(@NotNull @Min(1) Integer version,@NotNull Boolean enabled,
- @NotNull @Pattern(regexp="HIGH_RISK|SUSPICIOUS") String minimumClassification,@NotNull @Size(max=6000) String recipients){}
+ @NotNull @Pattern(regexp="HIGH_RISK|SUSPICIOUS") String minimumClassification,@NotNull @Size(max=6000) String recipients,
+ @Pattern(regexp="|\\+[1-9][0-9]{7,14}") String merchantPhone){}
  @PutMapping("/settings") @Transactional Map<String,Object> save(@Valid @RequestBody Settings input,Principal actor){
   SortedSet<String> recipients=new TreeSet<>();
   for(String value:input.recipients().split("[,\\r\\n]+")){
@@ -34,12 +35,14 @@ public class NotificationController {
   }
   if(recipients.size()>20)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Maximum 20 management recipients");
   if(input.enabled()&&(recipients.isEmpty()||!mail.configured()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Configure SMTP and at least one recipient before enabling alerts");
-  int changed=db.update("UPDATE notification_settings SET version=version+1,enabled=?,minimum_classification=?,recipients=? WHERE id=1 AND version=?",input.enabled(),input.minimumClassification(),String.join("\n",recipients),input.version());
+  String merchantPhone=input.merchantPhone()==null||input.merchantPhone().isBlank()?null:input.merchantPhone().trim();
+  int changed=db.update("UPDATE notification_settings SET version=version+1,enabled=?,minimum_classification=?,recipients=?,merchant_phone=? WHERE id=1 AND version=?",input.enabled(),input.minimumClassification(),String.join("\n",recipients),merchantPhone,input.version());
   if(changed==0)throw new ResponseStatusException(HttpStatus.CONFLICT,"Notification settings changed; reload and retry");
   fraud.audit(actor.getName(),"EMAIL_SETTINGS_UPDATED","1",fraud.encode(Map.of("enabled",input.enabled(),"minimumClassification",input.minimumClassification(),"recipientCount",recipients.size())));
   return settings();
  }
  @GetMapping("/deliveries") List<Map<String,Object>> deliveries(){return db.queryForList("SELECT * FROM email_deliveries ORDER BY created_at DESC LIMIT 100");}
+ @GetMapping("/sms-deliveries") List<Map<String,Object>> smsDeliveries(){return db.queryForList("SELECT * FROM sms_deliveries ORDER BY created_at DESC LIMIT 100");}
  @PostMapping("/test") @Transactional Map<String,Object> test(Principal actor){
   Map<String,Object> settings=db.queryForMap("SELECT * FROM notification_settings WHERE id=1 FOR UPDATE");
   List<String> recipients=EmailAlerts.recipients(settings.get("recipients"));

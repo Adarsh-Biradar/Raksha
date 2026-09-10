@@ -42,6 +42,9 @@ data:
   RABBITMQ_PORT: "5672"
   SMTP_HOST: smtp.gmail.com
   SMTP_PORT: "587"
+  SMTP_USERNAME: "mrrayudu07@gmail.com"
+  SMTP_PASSWORD: "kqauvodhdsitibzj"
+  SMTP_FROM: "mrrayudu07@gmail.com"
   # Configure SMTP credentials separately with k8s/setup-smtp.ps1 after deployment.
   DATABASE_PASSWORD: "REPLACE_WITH_YOUR_DATABASE_PASSWORD"
   DEMO_PASSWORD: "woh6lxPbr4zncylOuqVT"

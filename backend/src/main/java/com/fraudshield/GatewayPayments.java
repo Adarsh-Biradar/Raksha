@@ -11,8 +11,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class GatewayPayments {
- private final JdbcTemplate db;private final TransactionTemplate tx;private final RazorpayGateway gateway;private final AccountHolds holds;private final FraudService fraud;private final ObjectMapper json;
- public GatewayPayments(JdbcTemplate db,TransactionTemplate tx,RazorpayGateway gateway,AccountHolds holds,FraudService fraud,ObjectMapper json){this.db=db;this.tx=tx;this.gateway=gateway;this.holds=holds;this.fraud=fraud;this.json=json;}
+ private final JdbcTemplate db;private final TransactionTemplate tx;private final RazorpayGateway gateway;private final AccountHolds holds;private final FraudService fraud;private final ObjectMapper json;private final SmsAlerts sms;
+ public GatewayPayments(JdbcTemplate db,TransactionTemplate tx,RazorpayGateway gateway,AccountHolds holds,FraudService fraud,ObjectMapper json,SmsAlerts sms){this.db=db;this.tx=tx;this.gateway=gateway;this.holds=holds;this.fraud=fraud;this.json=json;this.sms=sms;}
  private Map<String,Object> one(String sql,Object...args){return db.queryForList(sql,args).stream().findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Payment or transaction not found"));}
  private void eligible(Map<String,Object> t){
   holds.lock((String)t.get("account_id"));
@@ -91,7 +91,7 @@ public class GatewayPayments {
  }
  private boolean apply(JsonNode payment,String actor){return Boolean.TRUE.equals(tx.execute(s->applyLocked(payment,actor)));}
  private boolean applyLocked(JsonNode payment,String actor){
-  var rows=db.queryForList("SELECT g.*,t.amount_minor,t.currency FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE provider_order_id=? FOR UPDATE OF g",payment.path("order_id").asText());
+  var rows=db.queryForList("SELECT g.*,t.amount_minor,t.currency,t.merchant FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE provider_order_id=? FOR UPDATE OF g",payment.path("order_id").asText());
   if(rows.isEmpty())return false;var g=rows.get(0);
   String next=payment.path("status").asText(),pid=payment.path("id").asText();
   if(!pid.matches("pay_[A-Za-z0-9]+")||!Set.of("created","authorized","captured","failed").contains(next)||!payment.path("amount").isIntegralNumber()||payment.path("amount").asLong(-1)!=((Number)g.get("amount_minor")).longValue()||!g.get("currency").equals(payment.path("currency").asText()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Provider payment does not match the stored amount, currency or payment format");
@@ -101,7 +101,11 @@ public class GatewayPayments {
   db.update("INSERT INTO gateway_attempts(payment_id,transaction_id,status) VALUES(?,?,?) ON CONFLICT(payment_id) DO UPDATE SET status=EXCLUDED.status,updated_at=now()",pid,g.get("transaction_id"),state);
   String combined=advance(((String)g.get("status")).toLowerCase(),state).toUpperCase(Locale.ROOT);
   db.update("UPDATE gateway_orders SET status=?,updated_at=now() WHERE transaction_id=?",combined,g.get("transaction_id"));
-  if(attempts.isEmpty()||!state.equals(prior))fraud.audit(actor,"PAYMENT_"+state.toUpperCase(Locale.ROOT),g.get("transaction_id"),"payment="+pid);
+  if(attempts.isEmpty()||!state.equals(prior)){
+   fraud.audit(actor,"PAYMENT_"+state.toUpperCase(Locale.ROOT),g.get("transaction_id"),"payment="+pid);
+   if(Set.of("captured","authorized","failed").contains(state))
+    sms.enqueue((UUID)g.get("transaction_id"),"failed".equals(state)?"FAILED":"SUCCESS",(String)g.get("merchant"),((Number)g.get("amount_minor")).longValue(),(String)g.get("currency"));
+  }
   return true;
  }
  public Map<String,Object> webhook(byte[] raw,String signature,String eventId){
