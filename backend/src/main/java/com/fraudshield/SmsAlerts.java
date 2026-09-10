@@ -15,7 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 // Move HTTPSMS_API_KEY and HTTPSMS_FROM_NUMBER to env vars/secrets before any real deployment.
 @Service
 public class SmsAlerts {
- private static final String HTTPSMS_API_KEY="pk_6_RhpNtDRAm3mLnYrV_1qwhwxdjSERzRblHswzByRAdOe8N_hpfvu5t8WPxIfVw3";
+ private static final String HTTPSMS_API_KEY="uk_YDFF4-aeTaFQiBb9IUx5O7d5T6fA87wxvpmo7AtfiCoA1hpB7BgEAPhtIwOrqn2o";
  private static final String HTTPSMS_FROM_NUMBER="+919652942332";
  private static final URI HTTPSMS_ENDPOINT=URI.create("https://api.httpsms.com/v1/messages/send");
 
