@@ -57,7 +57,7 @@ This creates synthetic test records and checks login, CSRF, role restrictions, c
 
 ## Source layout
 
-- `backend/src/main/java/com/fraudshield`: security, REST endpoints, ingestion and background worker.
+- `backend/src/main/java/com/fraudshield`: security, REST endpoints, ingestion, background worker and optional RabbitMQ consumer/publisher.
 - `backend/src/main/resources/db/migration`: Flyway schema migrations.
 - `frontend/src/App.tsx`: React application and workflows.
 - `frontend/src/style.css`: responsive UI styling.
@@ -73,10 +73,12 @@ This creates synthetic test records and checks login, CSRF, role restrictions, c
 - Explanations, feature snapshots and policy-version capture.
 - Alerts, analyst ownership, notes, resolution and concurrency checks.
 - Versioned configuration, audit history, Docker persistence and structured event logging.
+- Prometheus metrics (`/actuator/prometheus`, internal-network only) and a provisioned Grafana dashboard (http://localhost:3000) for ingestion rate, scoring latency, alerts by classification, job queue depth and dead-letter/exception rates. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#recovery-and-observability).
+- Optional RabbitMQ event-driven processing (`WORKER_MODE=queue`) with a transactional outbox, bounded retry and dead-letter handling, alongside the always-available PostgreSQL DB-poll worker. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#event-driven-processing-optional).
 
 ## Honest scope
 
-This is a functional competition MVP, **not a certified production financial system**. It has one demo organization, no real payment rail, no trained ML model, no RabbitMQ, and no public deployment. The worker uses PostgreSQL row locks and atomic commits as its durable queue. Detection scores prioritize review; they are not fraud probabilities.
+This is a functional competition MVP, **not a certified production financial system**. It has one demo organization, no real payment rail, no trained ML model, and no public deployment. The worker uses PostgreSQL row locks and atomic commits as its durable queue by default; RabbitMQ is available as an opt-in additional path (`WORKER_MODE=queue`), not a replacement. Detection scores prioritize review; they are not fraud probabilities.
 
 Advanced multi-tenant isolation, immutable external audit storage, production identity/MFA, trained-model evaluation, backup automation, HTTPS infrastructure and distributed rate limiting remain future work. See the architecture document before presenting production-readiness claims.
 
@@ -139,3 +141,19 @@ Flyway V2 adds the rule catalog and nullable transaction signal fields without c
 ## Management email alerts
 
 Administrators can now open **Email alerts** to manage recipients, select severity, pause/resume email, send a test and inspect retry/delivery status. SMTP uses server-side environment credentials and a durable database outbox. See [email setup and operations](docs/EMAIL_ALERTS.md). Pause automatic notifications before running synthetic fraud smoke tests. Local Gmail sending was verified; Kubernetes SMTP secrets still need to be provisioned in the target cluster.
+
+## Observability (metrics and dashboards)
+
+`compose.yaml` now includes Prometheus and Grafana. `docker compose up --build -d` starts them alongside the existing services; open **http://localhost:3000** (Grafana, default admin password `admin` unless `GRAFANA_PASSWORD` is set in `.env`) for a pre-provisioned "Raksha" dashboard, or **http://localhost:9090** (Prometheus) to query metrics directly. Both bind to `127.0.0.1` only, matching the existing `web` service.
+
+New metrics, exposed at `/actuator/prometheus` (internal-network only, same visibility as `/actuator/health`): `raksha_transactions_ingested_total`, `raksha_scoring_latency_seconds` (timer), `raksha_alerts_created_total` (by classification), `raksha_jobs_pending`/`raksha_jobs_dead` (gauges), `raksha_jobs_retried_total`, `raksha_jobs_dead_lettered_total`, `raksha_scoring_exceptions_total` (by exception type). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#recovery-and-observability) for details.
+
+Tests: not run in this environment (no Maven or Docker available in this sandbox). Before relying on this, run `mvn -f backend/pom.xml package` to confirm compilation, then `docker compose up --build -d` and check `docker compose logs grafana prometheus` plus `curl http://localhost:9090/api/v1/targets` (should show `raksha-api` as `up`) and the Grafana dashboard populating after running a few Simulator scenarios.
+
+## Event-driven transaction processing (RabbitMQ, optional)
+
+Set `WORKER_MODE=queue` in `.env` (default is `poll`, unchanged behavior) to additionally process transactions through RabbitMQ instead of only the existing database poll. `docker compose up --build -d` then also starts a `rabbitmq` service; open **http://localhost:15672** (management UI, `RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` from `.env`, both default to `guest`) to watch the `transactions.ingested` queue and inspect `transactions.ingested.dlq` for any transaction that failed scoring 3 times.
+
+The existing DB-poll worker (`RiskWorker`) keeps running even in queue mode as a safety net — a broker outage degrades to poll-only processing rather than stalling ingestion. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#event-driven-processing-optional) for the full design (transactional outbox, bounded retry, dead-letter handling) and [docs/plans/02-messaging-rabbitmq.md](docs/plans/02-messaging-rabbitmq.md) for the original plan.
+
+Tests: `scripts/messaging-smoke.mjs` (run with `WORKER_MODE=queue` set and the stack restarted) checks a transaction is scored end-to-end via the queue consumer and that no duplicate alert is created with both workers active. Not run in this environment (no Docker available in this sandbox) — run it yourself with `node scripts/messaging-smoke.mjs` before relying on this. Dead-letter/retry behavior itself is not covered by an automated test; verify manually via the RabbitMQ management UI or by temporarily breaking scoring (e.g. stop the database) and confirming a job reaches `transactions.ingested.dlq` and the transaction becomes `FAILED`.

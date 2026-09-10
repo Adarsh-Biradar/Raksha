@@ -6,6 +6,9 @@ import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -14,8 +17,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class FraudService {
- final JdbcTemplate db; final ObjectMapper json;
- public FraudService(JdbcTemplate db,ObjectMapper json) {this.db=db;this.json=json;}
+ final JdbcTemplate db; final ObjectMapper json; final Counter transactionsIngested; final boolean queueMode;
+ public FraudService(JdbcTemplate db,ObjectMapper json,MeterRegistry meterRegistry,@Value("${app.worker-mode:poll}") String workerMode) {
+  this.db=db;this.json=json;this.queueMode="queue".equals(workerMode);
+  this.transactionsIngested=Counter.builder("raksha.transactions.ingested").description("Transactions accepted for scoring").register(meterRegistry);
+ }
  @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
  public record Input(
   @NotBlank @Pattern(regexp="[A-Za-z0-9_-]{1,100}") String eventId,
@@ -51,7 +57,9 @@ public class FraudService {
   if(!hash.equals(row.get("payload_hash"))) throw new ResponseStatusException(HttpStatus.CONFLICT,"Event ID already used with a different payload");
   if(inserted==1) {
    db.update("INSERT INTO scoring_jobs(id,transaction_id) VALUES(?,?)",UUID.randomUUID(),id);
+   if(queueMode) db.update("INSERT INTO outbox_events(id,transaction_id,event_id) VALUES(?,?,?)",UUID.randomUUID(),id,input.eventId());
    audit(actor,"TRANSACTION_ACCEPTED",id,"event="+input.eventId());
+   transactionsIngested.increment();
   }
   return Map.of("id",row.get("id"),"status",row.get("status"),"duplicate",inserted==0);
  }

@@ -1,9 +1,27 @@
 # Raksha: complete single-file Kubernetes deployment.
-# Replace BOTH Secret placeholders before applying. Never commit real passwords.
+# All configuration, including credentials, lives in the raksha-config ConfigMap below (no
+# Secret object is used in this file). Replace all placeholder values before applying. Never
+# commit real passwords. A ConfigMap is NOT encrypted or access-restricted the way a Secret is -
+# anyone who can read ConfigMaps in this namespace can read these values in plain text. This is a
+# deliberate simplification for this deployment; harden it (move back to Secrets, or an external
+# secrets manager) before treating this as a production posture.
 # For existing storage, use its current password; this does not reset stored passwords.
 # Images must be available to the cluster. Requires a default StorageClass.
 # Deploy: kubectl apply -f raksha-k8s.yml
 # Open: kubectl -n raksha port-forward service/raksha-web 8089:80
+# Grafana (dashboard, admin password required): https://grafana-raksha.rayududev.live
+# Prometheus (raw metrics/exception data, NO authentication): https://prometheus-raksha.rayududev.live
+#   Prometheus has no login of its own. Its Ingress is public once applied. Restrict it with an
+#   IngressClass-level allowlist, a VPN/private ingress class, or basic-auth annotations before
+#   relying on this in anything beyond a short-lived demo.
+# RabbitMQ management UI (can inspect/publish/purge queues - more powerful than the read-only
+# Grafana/Prometheus UIs): https://rabbitmq-raksha.rayududev.live
+#   No basic-auth in front of it - protected only by RabbitMQ's own login (raksha-config's
+#   RABBITMQ_USERNAME/RABBITMQ_PASSWORD). Its Ingress is public once applied; set a strong
+#   RABBITMQ_PASSWORD before relying on this beyond a short-lived demo.
+# The API defaults to WORKER_MODE=poll (no RabbitMQ dependency). Set WORKER_MODE=queue in
+# raksha-config to additionally process transactions via RabbitMQ; the DB-poll worker keeps
+# running as a safety net either way. See docs/plans/02-messaging-rabbitmq.md.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -12,18 +30,6 @@ metadata:
   name: raksha
 ---
 apiVersion: v1
-kind: Secret
-metadata:
-  name: raksha-secrets
-  namespace: raksha
-type: Opaque
-stringData:
-  # Configure SMTP separately with k8s/setup-smtp.ps1 after deployment.
-  DATABASE_PASSWORD: "REPLACE_WITH_PRODUCTION_DATABASE_PASSWORD"
-  DEMO_PASSWORD: "REPLACE_WITH_PRODUCTION_LOGIN_PASSWORD_MIN_10_CHARACTERS"
----
-
-apiVersion: v1
 data:
   COOKIE_SECURE: "false"
   DATABASE_URL: jdbc:postgresql://postgres:5432/fraudshield
@@ -31,8 +37,18 @@ data:
   POSTGRES_DB: fraudshield
   POSTGRES_USER: fraudshield
   WORKER_ENABLED: "true"
+  WORKER_MODE: "poll"
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
   SMTP_HOST: smtp.gmail.com
   SMTP_PORT: "587"
+  # Configure SMTP credentials separately with k8s/setup-smtp.ps1 after deployment.
+  DATABASE_PASSWORD: "REPLACE_WITH_YOUR_DATABASE_PASSWORD"
+  DEMO_PASSWORD: "woh6lxPbr4zncylOuqVT"
+  GRAFANA_ADMIN_PASSWORD: "woh6lxPbr4zncylOuqVT"
+  # Only used if WORKER_MODE=queue above. Change the default guest/guest before then.
+  RABBITMQ_USERNAME: "guest"
+  RABBITMQ_PASSWORD: "woh6lxPbr4zncylOuqVT"
 kind: ConfigMap
 metadata:
   name: raksha-config
@@ -112,31 +128,43 @@ spec:
       - env:
         - name: DATABASE_PASSWORD
           valueFrom:
-            secretKeyRef:
+            configMapKeyRef:
               key: DATABASE_PASSWORD
-              name: raksha-secrets
+              name: raksha-config
         - name: DEMO_PASSWORD
           valueFrom:
-            secretKeyRef:
+            configMapKeyRef:
               key: DEMO_PASSWORD
-              name: raksha-secrets
+              name: raksha-config
         - name: SMTP_USERNAME
           valueFrom:
-            secretKeyRef:
-              name: raksha-secrets
+            configMapKeyRef:
+              name: raksha-config
               key: SMTP_USERNAME
               optional: true
         - name: SMTP_PASSWORD
           valueFrom:
-            secretKeyRef:
-              name: raksha-secrets
+            configMapKeyRef:
+              name: raksha-config
               key: SMTP_PASSWORD
               optional: true
         - name: SMTP_FROM
           valueFrom:
-            secretKeyRef:
-              name: raksha-secrets
+            configMapKeyRef:
+              name: raksha-config
               key: SMTP_FROM
+              optional: true
+        - name: RABBITMQ_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: raksha-config
+              key: RABBITMQ_USERNAME
+              optional: true
+        - name: RABBITMQ_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: raksha-config
+              key: RABBITMQ_PASSWORD
               optional: true
         - name: SERVER_SHUTDOWN
           value: graceful
@@ -307,9 +335,9 @@ spec:
               name: raksha-config
         - name: POSTGRES_PASSWORD
           valueFrom:
-            secretKeyRef:
+            configMapKeyRef:
               key: DATABASE_PASSWORD
-              name: raksha-secrets
+              name: raksha-config
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
         image: postgres:16-alpine
@@ -380,7 +408,126 @@ spec:
       resources:
         requests:
           storage: 5Gi
-
+---
+# RabbitMQ: only required when WORKER_MODE=queue in raksha-config. With the default
+# WORKER_MODE=poll, the api Deployment never opens a connection to this service - it can be
+# left running idle or scaled to 0 replicas if queue mode is never used.
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: raksha
+  name: rabbitmq
+  namespace: raksha
+spec:
+  clusterIP: None
+  ports:
+  - name: amqp
+    port: 5672
+    targetPort: amqp
+  - name: management
+    port: 15672
+    targetPort: management
+  selector:
+    app.kubernetes.io/name: rabbitmq
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: rabbitmq
+  namespace: raksha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  serviceName: rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: RABBITMQ_DEFAULT_USER
+          valueFrom:
+            configMapKeyRef:
+              key: RABBITMQ_USERNAME
+              name: raksha-config
+        - name: RABBITMQ_DEFAULT_PASS
+          valueFrom:
+            configMapKeyRef:
+              key: RABBITMQ_PASSWORD
+              name: raksha-config
+        image: rabbitmq:3-management-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - -q
+            - ping
+          failureThreshold: 5
+          periodSeconds: 15
+        name: rabbitmq
+        ports:
+        - containerPort: 5672
+          name: amqp
+        - containerPort: 15672
+          name: management
+        readinessProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - -q
+            - ping
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - -q
+            - ping
+          failureThreshold: 60
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/rabbitmq
+          name: data
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
 ---
 # Web keeps the existing Ingress name so apply updates the previous apex route.
 apiVersion: networking.k8s.io/v1
@@ -436,3 +583,405 @@ spec:
                 name: api
                 port:
                   number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering this hostname:
+  # tls:
+  #   - hosts:
+  #       - grafana-raksha.rayududev.live
+  #     secretName: grafana-raksha-tls
+  rules:
+    - host: grafana-raksha.rayududev.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+---
+# Prometheus has NO login of its own — this Ingress makes raw metrics and exception-type
+# data public once applied. Add basic-auth annotations (or a private/allowlisted
+# IngressClass) before pointing this at anything beyond a short-lived demo.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering this hostname:
+  # tls:
+  #   - hosts:
+  #       - prometheus-raksha.rayududev.live
+  #     secretName: prometheus-raksha-tls
+  rules:
+    - host: prometheus-raksha.rayududev.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  number: 9090
+---
+# Public once applied - no basic-auth in front of it. Protected only by RabbitMQ's own login
+# (raksha-config's RABBITMQ_USERNAME/RABBITMQ_PASSWORD). Set a strong RABBITMQ_PASSWORD.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rabbitmq
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering this hostname:
+  # tls:
+  #   - hosts:
+  #       - rabbitmq-raksha.rayududev.live
+  #     secretName: rabbitmq-raksha-tls
+  rules:
+    - host: rabbitmq-raksha.rayududev.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rabbitmq
+                port:
+                  number: 15672
+---
+# Observability: Prometheus + Grafana Deployments/Services/ConfigMaps (Ingresses defined above).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: raksha
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+    scrape_configs:
+      - job_name: raksha-api
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets: ["api:8080"]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: raksha
+data:
+  prometheus.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: raksha
+data:
+  dashboard.yml: |
+    apiVersion: 1
+    providers:
+      - name: Raksha
+        orgId: 1
+        folder: Raksha
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/provisioning/dashboards
+  raksha-dashboard.json: |
+    {
+      "title": "Raksha — Fraud Platform",
+      "uid": "raksha-overview",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Transactions ingested (rate/min)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            { "expr": "rate(raksha_transactions_ingested_total[5m]) * 60", "legendFormat": "ingested/min" }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Scoring latency (p95, seconds)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(raksha_scoring_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p95 latency" }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Alerts created by classification",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            { "expr": "sum(rate(raksha_alerts_created_total[5m])) by (classification) * 60", "legendFormat": "{{classification}}/min" }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Scoring jobs pending / dead",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            { "expr": "raksha_jobs_pending", "legendFormat": "pending" },
+            { "expr": "raksha_jobs_dead", "legendFormat": "dead" }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Job retries / dead-lettered (rate/min)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "targets": [
+            { "expr": "rate(raksha_jobs_retried_total[5m]) * 60", "legendFormat": "retried/min" },
+            { "expr": "rate(raksha_jobs_dead_lettered_total[5m]) * 60", "legendFormat": "dead-lettered/min" }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Scoring exceptions by type (rate/min)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "targets": [
+            { "expr": "sum(rate(raksha_scoring_exceptions_total[5m])) by (type) * 60", "legendFormat": "{{type}}/min" }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: prometheus
+  namespace: raksha
+spec:
+  ports:
+  - name: http
+    port: 9090
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: prometheus
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: grafana
+  namespace: raksha
+spec:
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: grafana
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: raksha
+  name: prometheus
+  namespace: raksha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - image: prom/prometheus:latest
+        imagePullPolicy: IfNotPresent
+        name: prometheus
+        ports:
+        - containerPort: 9090
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          periodSeconds: 15
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/prometheus
+          name: config
+          readOnly: true
+        - mountPath: /prometheus
+          name: data
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - configMap:
+          name: prometheus-config
+        name: config
+      # Metrics history does not survive pod restarts; this is a demo dashboard, not a
+      # metrics retention/compliance store. Switch to a volumeClaimTemplate if that changes.
+      - emptyDir:
+          sizeLimit: 1Gi
+        name: data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: raksha
+  name: grafana
+  namespace: raksha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              key: GRAFANA_ADMIN_PASSWORD
+              name: raksha-config
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        image: grafana/grafana:latest
+        imagePullPolicy: IfNotPresent
+        name: grafana
+        ports:
+        - containerPort: 3000
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 15
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: datasources
+          readOnly: true
+        - mountPath: /etc/grafana/provisioning/dashboards
+          name: dashboards
+          readOnly: true
+        - mountPath: /var/lib/grafana
+          name: data
+        - mountPath: /tmp
+          name: temporary
+      securityContext:
+        fsGroup: 472
+        runAsGroup: 472
+        runAsNonRoot: true
+        runAsUser: 472
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - configMap:
+          name: grafana-datasources
+        name: datasources
+      - configMap:
+          name: grafana-dashboards
+        name: dashboards
+      # Dashboards/users reset on pod restart (re-provisioned from the ConfigMaps above on
+      # start); this is a demo dashboard, not a durable Grafana instance. Switch to a
+      # volumeClaimTemplate if saved edits need to survive restarts.
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: data
+      - emptyDir:
+          sizeLimit: 64Mi
+        name: temporary

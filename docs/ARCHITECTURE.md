@@ -4,7 +4,9 @@
 
 React runs as static files behind Nginx. Same-origin /api requests reach Spring Boot. Spring Security authenticates server-side sessions backed by the application's memory. PostgreSQL stores users, events, jobs, assessments, alerts, cases and audit records. Flyway applies versioned migrations on startup.
 
-The same Java process contains a scheduled background worker. A separate broker is intentionally deferred: a transaction and its scoring job are committed in the same PostgreSQL transaction, eliminating a database-to-broker dual-write gap for this MVP.
+The same Java process contains a scheduled background worker (`RiskWorker`). A transaction and its scoring job are committed in the same PostgreSQL transaction, eliminating a database-to-broker dual-write gap. This DB-poll worker is always active when `WORKER_ENABLED=true` (the default) and requires no broker.
+
+An optional RabbitMQ path (`WORKER_MODE=queue`, default `poll`) additionally consumes scoring work as events rather than only by polling: see "Event-driven processing (optional)" below. The DB-poll worker keeps running as a safety net even when the queue path is enabled, so a broker outage never stalls processing.
 
 ## Transaction integrity and processing
 
@@ -15,6 +17,19 @@ The worker selects a ready job with FOR UPDATE SKIP LOCKED, obtains an account a
 After a scoring exception, the worker records a bounded retry with increasing delay. After three failures the job is DEAD and the transaction FAILED. An admin can retry dead jobs through Rules & settings. Database unavailability leaves durable pending work for later polling.
 
 The default deployment runs one API/worker instance. Concurrent ingesters and case updates are supported. Multiple instances require shared sessions, distributed rate limiting and careful contention/failure testing before being advertised as supported.
+
+## Event-driven processing (optional)
+
+Set `WORKER_MODE=queue` (compose.yaml adds a `rabbitmq` service) to layer RabbitMQ on top of the existing durable job queue, using the transactional-outbox pattern:
+
+1. `FraudService.ingest()` inserts an `outbox_events` row in the same database transaction as the transaction/`scoring_jobs` row (source of truth stays PostgreSQL; no dual-write gap is introduced).
+2. `OutboxPublisher` (same `FOR UPDATE SKIP LOCKED` pattern as the job poller) relays unpublished outbox rows to the `raksha.events` exchange, marking a row published only after a successful send. If RabbitMQ is unreachable, the publish throws, the surrounding transaction rolls back, and the row is retried on the next tick — no message is lost, and no work is duplicated.
+3. `QueueRiskWorker` consumes `transactions.ingested`. It only claims a job that is still `PENDING` under `FOR UPDATE SKIP LOCKED`, so at-least-once redelivery — or a race with the still-running DB-poll worker — never double-scores a transaction (the `alerts` table's unique constraint on `transaction_id` backs this up too).
+4. A message that fails processing 3 times (Spring Retry, in-process backoff, no broker round-trips per attempt) is republished to `raksha.events.dlx`, landing in `transactions.ingested.dlq`. `TransactionsDeadLetterConsumer` marks the job `DEAD` and the transaction `FAILED` — identical outcome to the DB-poll worker's own bounded-retry/dead-letter path, so `POST /api/jobs/{id}/retry` recovers a dead job the same way regardless of which worker path originally failed it.
+
+Both worker paths can run concurrently without conflict, since PostgreSQL row-level locking (`SKIP LOCKED`) makes "claim a still-PENDING job" mutually exclusive between them. This is a deliberate choice over a strict either/or mode switch: it means a broker outage degrades to poll-only processing rather than stalling ingestion.
+
+In the default `poll` mode, none of the RabbitMQ beans (`RabbitConfig`, `OutboxPublisher`, `QueueRiskWorker`, `TransactionsDeadLetterConsumer`) are created, and `management.health.rabbit.enabled=false` keeps `/actuator/health` (and Kubernetes probes) from depending on a broker that may not be running. Not yet implemented: an `alerts.generated` queue/consumer for notifications (email alerts still use their own existing database outbox — see `docs/EMAIL_ALERTS.md`) — this remains a natural next step, not current behavior.
 
 ## Risk methodology
 
@@ -76,6 +91,8 @@ Accepted transactions return 202. Validation returns 400, unauthenticated reads 
 ## Recovery and observability
 
 Pending, failed and scored statuses are distinct; pending never means normal. The dashboard reports pending jobs and dead jobs. API logs include scored transaction IDs and classification; worker failures log job IDs and exception type. Actuator exposes a minimal database health endpoint inside the network. Container restart policies restart exited processes, not merely unhealthy ones.
+
+Micrometer/Prometheus metrics are exposed at `/actuator/prometheus` (not published to the host; only reachable inside the Compose network, same as `/actuator/health`): `raksha.transactions.ingested`, `raksha.scoring.latency`, `raksha.alerts.created` (tagged by classification), `raksha.jobs.pending` and `raksha.jobs.dead` (gauges reading the same job table the dashboard endpoint uses), `raksha.jobs.retried`, `raksha.jobs.dead_lettered`, and `raksha.scoring.exceptions` (tagged by exception type). A local Prometheus + Grafana stack (`compose.yaml`, `docs/observability/`) scrapes and visualizes these; Grafana auto-provisions the Prometheus datasource and a starter dashboard on first start (http://localhost:3000, default admin password `admin` unless `GRAFANA_PASSWORD` is set). This does not include external error-tracking (e.g. Sentry) or a service mesh; scope is metrics visibility only.
 
 Backup: use pg_dump to a file outside the database volume; protect the backup and restore it into a separate PostgreSQL instance before relying on it. Backup automation and a tested disaster-recovery objective are not provided. Do not treat Docker volumes as backups.
 

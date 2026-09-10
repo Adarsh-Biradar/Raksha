@@ -24,6 +24,14 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        default-requeue-rejected: false
 server:
   port: 8080
   servlet:
@@ -39,14 +47,22 @@ management:
   health:
     mail:
       enabled: false
+    rabbit:
+      enabled: false
+    probes:
+      enabled: true
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
+  metrics:
+    tags:
+      application: raksha
 app:
   mail-from: ${SMTP_FROM:}
   demo-password: ${DEMO_PASSWORD}
   worker-enabled: ${WORKER_ENABLED:true}
+  worker-mode: ${WORKER_MODE:poll}

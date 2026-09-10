@@ -13,6 +13,21 @@ services:
       timeout: 3s
       retries: 15
     restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
   api:
     image: ${DOCKERHUB_USERNAME:-adarshbiradar}/raksha-api:${IMAGE_TAG:-latest}
     build: ./backend
@@ -28,8 +43,15 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
+      WORKER_MODE: ${WORKER_MODE:-poll}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
   web:
@@ -45,5 +67,32 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./docs/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - api
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docs/observability/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docs/observability/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
+  rabbitmq_data:

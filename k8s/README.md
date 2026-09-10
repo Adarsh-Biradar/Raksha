@@ -111,7 +111,7 @@ References: [Kubernetes probes](https://kubernetes.io/docs/tasks/configure-pod-c
 
 ## Single-file deployment
 
-Alternatively, use [raksha-k8s.yml](../raksha-k8s.yml) from the project root. This standalone bundle includes the namespace, Secret template, configuration, PostgreSQL storage, API, web, and services. Replace both Secret password placeholders before applying; use the existing database password if reusing storage, and choose a demo password of at least 10 characters. Keep real credentials out of version control. This bundle is a snapshot; regenerate it if the modular manifests change.
+Alternatively, use [raksha-k8s.yml](../raksha-k8s.yml) from the project root. This standalone bundle includes the namespace, configuration, PostgreSQL storage, RabbitMQ, API, web, services, and a Prometheus + Grafana + RabbitMQ management UI observability stack, each with its own public Ingress. All configuration, including credentials, lives in the single `raksha-config` ConfigMap — there is no Secret object in this file. Replace all four password placeholders in `raksha-config` before applying (database, demo login, Grafana admin, RabbitMQ); use the existing database password if reusing storage, and choose passwords of at least 10 characters. **A ConfigMap is not encrypted or RBAC-restricted the way a Secret is** — anyone who can read ConfigMaps in the `raksha` namespace can read these values in plain text; this is a deliberate simplification, not a production posture. Keep real credentials out of version control regardless. This bundle is a snapshot; regenerate it if the modular manifests change.
 
 ```powershell
 kubectl apply -f raksha-k8s.yml
@@ -119,25 +119,38 @@ kubectl -n raksha get pods
 kubectl -n raksha port-forward service/raksha-web 8089:80
 ```
 
-Use either this file or the modular deployment workflow. The single-file workflow includes its own Secret and does not require setup-secrets.ps1.
+Grafana auto-provisions the Prometheus datasource and a "Raksha" dashboard on first start from the `grafana-datasources`/`grafana-dashboards` ConfigMaps. Prometheus scrapes `/actuator/prometheus` on the existing `api` Service — the API's own Ingress is unchanged and still does not expose actuator endpoints.
+
+**Prometheus has no login of its own.** Its Ingress (`prometheus-raksha.rayududev.live`) is public as soon as you apply this file, exposing raw metrics and exception-type data to anyone who knows the hostname. Grafana (`grafana-raksha.rayududev.live`) at least requires its admin password. Before using this outside a short-lived demo, put basic-auth annotations or an allowlisted/private IngressClass in front of the Prometheus Ingress, or delete that Ingress and use `kubectl -n raksha port-forward service/prometheus 9090:9090` instead.
+
+Metrics history and any Grafana UI edits are not persisted across pod restarts (both use `emptyDir`, not a PVC) — acceptable for a demo dashboard; switch to `volumeClaimTemplate`-backed storage if that changes. Not verified against a live cluster in this environment — validate with `kubectl apply --dry-run=server` first.
+
+**RabbitMQ** runs by default (`raksha-config` sets `WORKER_MODE: "poll"`, so the API never connects to it) with a `volumeClaimTemplate`-backed `data` PVC, same durability pattern as PostgreSQL. Set `WORKER_MODE: "queue"` in `raksha-config` to additionally process transactions via RabbitMQ — see [docs/plans/02-messaging-rabbitmq.md](../docs/plans/02-messaging-rabbitmq.md).
+
+**RabbitMQ's management UI can inspect, publish to, and purge queues** — more powerful than the read-only Grafana/Prometheus dashboards. Its Ingress (`rabbitmq-raksha.rayududev.live`) has no basic-auth in front of it — it's public as soon as you apply this file, protected only by RabbitMQ's own login (`RABBITMQ_USERNAME`/`RABBITMQ_PASSWORD` in `raksha-config`). Set a strong `RABBITMQ_PASSWORD` before relying on this beyond a short-lived demo.
+
+Use either this file or the modular deployment workflow. The single-file workflow keeps all its configuration in one ConfigMap and does not require setup-secrets.ps1.
 ## Domain ingresses
 
-Both deployment formats contain two separate Ingress resources:
+The modular manifests (`k8s/`) define the app's two Ingress resources. `raksha-k8s.yml` additionally defines Ingresses for Grafana and Prometheus:
 
-| Ingress | Host | Route | Backend |
-| --- | --- | --- | --- |
-| raksha | raksha.rayududev.live | / (Prefix) | raksha-web:80 |
-| raksha-api | api-raksha.rayududev.live | /api (Prefix) | api:8080 |
+| Ingress | Host | Route | Backend | Auth |
+| --- | --- | --- | --- | --- |
+| raksha | raksha.rayududev.live | / (Prefix) | raksha-web:80 | app login |
+| raksha-api | api-raksha.rayududev.live | /api (Prefix) | api:8080 | app login |
+| grafana | grafana-raksha.rayududev.live | / (Prefix) | grafana:3000 | Grafana admin password |
+| prometheus | prometheus-raksha.rayududev.live | / (Prefix) | prometheus:9090 | **none — public once applied** |
+| rabbitmq | rabbitmq-raksha.rayududev.live | / (Prefix) | rabbitmq:15672 | RabbitMQ login only — **no basic-auth, public once applied** |
 
 The web resource keeps its previous name, so applying this updates the old apex-domain rule without leaving an extra Ingress. Kubernetes hostnames use lowercase. API URLs retain their /api prefix, for example http://api-raksha.rayududev.live/api/csrf. The API ingress does not expose actuator endpoints.
 
 The React app continues calling /api on its web origin through the existing Nginx proxy, preserving its session and CSRF flow. The separate API hostname is available for Postman and other API clients; browser calls across the two domains would need an explicit CORS and credentials configuration.
 
-An installed Ingress controller is required. Run `kubectl get ingressclass`; if no default class exists, uncomment and set ingressClassName in BOTH resources to your installed class.
+An installed Ingress controller is required. Run `kubectl get ingressclass`; if no default class exists, uncomment and set ingressClassName in ALL FIVE Ingress resources in `raksha-k8s.yml` (or both, if using only the modular manifests) to your installed class.
 
 ```powershell
 kubectl apply -f raksha-k8s.yml
-kubectl -n raksha get ingress raksha raksha-api
+kubectl -n raksha get ingress raksha raksha-api grafana prometheus rabbitmq
 ```
 
 At your DNS provider, create A records named raksha and api-raksha pointing to the controller's public IPv4 address. If the load balancer supplies a hostname, use CNAME records for both subdomains. A private Docker Desktop address is not publicly reachable.

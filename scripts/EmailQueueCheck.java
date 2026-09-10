@@ -3,6 +3,7 @@ import java.util.*;
 import java.io.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -27,7 +28,7 @@ class EmailQueueCheck {
    db.execute("CREATE TABLE alerts(id uuid primary key,transaction_id uuid unique)");
    db.execute("CREATE TABLE audit_events(actor text,action text,target text,details text)");
    db.execute("CREATE TABLE email_deliveries(id uuid primary key,alert_id uuid,recipient text,classification text,score int,transaction_id uuid,state text default 'PENDING',attempts int default 0,available_at timestamptz default now(),created_at timestamptz default now(),sent_at timestamptz,last_error text,unique(alert_id,recipient))");
-   FraudService fraud=new FraudService(db,new ObjectMapper());
+   FraudService fraud=new FraudService(db,new ObjectMapper(),new SimpleMeterRegistry(),"poll");
    JavaMailSenderImpl failure=new JavaMailSenderImpl(){@Override public void send(SimpleMailMessage message){throw new MailAuthenticationException("test-only failure");}};
    EmailAlerts failing=new EmailAlerts(db,tx,fraud,failure,"smtp.invalid",587,"test","test-secret","sender@example.invalid");
    UUID failed=UUID.randomUUID();
