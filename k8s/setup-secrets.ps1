@@ -17,6 +17,9 @@ $taskSecret = @{
   metadata = @{ name = 'raksha-secrets'; namespace = 'raksha' }
   type = 'Opaque'
   data = @{
+    SMTP_USERNAME = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$taskEntries['SMTP_USERNAME']))
+    SMTP_PASSWORD = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$taskEntries['SMTP_PASSWORD']))
+    SMTP_FROM = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$taskEntries['SMTP_FROM']))
     DATABASE_PASSWORD = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($taskEntries['DATABASE_PASSWORD']))
     DEMO_PASSWORD = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($taskEntries['DEMO_PASSWORD']))
   }

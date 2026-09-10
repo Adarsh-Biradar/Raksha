@@ -18,6 +18,10 @@ metadata:
   namespace: raksha
 type: Opaque
 stringData:
+  # Optional SMTP credentials: populate privately before enabling email alerts.
+  SMTP_USERNAME: ""
+  SMTP_PASSWORD: ""
+  SMTP_FROM: ""
   DATABASE_PASSWORD: "raksha@123"
   DEMO_PASSWORD: "hello@123"
 ---
@@ -30,6 +34,8 @@ data:
   POSTGRES_DB: fraudshield
   POSTGRES_USER: fraudshield
   WORKER_ENABLED: "true"
+  SMTP_HOST: smtp.gmail.com
+  SMTP_PORT: "587"
 kind: ConfigMap
 metadata:
   name: raksha-config
@@ -117,6 +123,24 @@ spec:
             secretKeyRef:
               key: DEMO_PASSWORD
               name: raksha-secrets
+        - name: SMTP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: raksha-secrets
+              key: SMTP_USERNAME
+              optional: true
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: raksha-secrets
+              key: SMTP_PASSWORD
+              optional: true
+        - name: SMTP_FROM
+          valueFrom:
+            secretKeyRef:
+              name: raksha-secrets
+              key: SMTP_FROM
+              optional: true
         - name: SERVER_SHUTDOWN
           value: graceful
         - name: SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE

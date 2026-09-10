@@ -3,7 +3,7 @@
 <groupId>com.fraudshield</groupId><artifactId>fraudshield</artifactId><version>0.1.0</version><properties><java.version>21</java.version></properties>
 <name>Raksha</name>
 <description>Transaction intelligence and fraud investigation platform</description>
-<dependencies>
+<dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-mail</artifactId></dependency>
 <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
 <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security</artifactId></dependency>
 <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId></dependency>

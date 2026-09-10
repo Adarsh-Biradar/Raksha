@@ -12,9 +12,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 @ConditionalOnProperty(name="app.worker-enabled",havingValue="true",matchIfMissing=true)
 public class RiskWorker {
- private final JdbcTemplate db; private final TransactionTemplate tx; private final FraudService service;
+ private final JdbcTemplate db; private final TransactionTemplate tx; private final FraudService service; private final EmailAlerts email;
  private static final Logger log=LoggerFactory.getLogger(RiskWorker.class);
- public RiskWorker(JdbcTemplate db,TransactionTemplate tx,FraudService service){this.db=db;this.tx=tx;this.service=service;}
+ public RiskWorker(JdbcTemplate db,TransactionTemplate tx,FraudService service,EmailAlerts email){this.db=db;this.tx=tx;this.service=service;this.email=email;}
  @Scheduled(fixedDelay=750)
  public void poll() {
   for(int i=0;i<25;i++) {
@@ -94,6 +94,7 @@ public class RiskWorker {
   db.update("UPDATE transactions SET status='SCORED',score=?,classification=?,explanation=?,features=?,policy_version=? WHERE id=?",
     score,classification,service.encode(reasons),features,p.get("version"),id);
   if(!classification.equals("NORMAL")) db.update("INSERT INTO alerts(id,transaction_id) VALUES(?,?) ON CONFLICT(transaction_id) DO NOTHING",UUID.randomUUID(),id);
+  email.enqueue(id,classification,score);
   service.audit("risk-worker","TRANSACTION_SCORED",id,"score="+score+";policy="+p.get("version"));
   log.info("transaction_scored id={} score={} classification={}",id,score,classification);
  }

@@ -59,6 +59,24 @@ spec:
             - name: DEMO_PASSWORD
               valueFrom:
                 secretKeyRef: { name: raksha-secrets, key: DEMO_PASSWORD }
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: raksha-secrets
+                  key: SMTP_USERNAME
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: raksha-secrets
+                  key: SMTP_PASSWORD
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: raksha-secrets
+                  key: SMTP_FROM
+                  optional: true
             - name: SERVER_SHUTDOWN
               value: graceful
             - name: SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE

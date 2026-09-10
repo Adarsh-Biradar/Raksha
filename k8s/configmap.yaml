@@ -11,3 +11,6 @@ data:
   # Local port-forward demo uses HTTP. Set true before serving over HTTPS.
   COOKIE_SECURE: "false"
   WORKER_ENABLED: "true"
+
+  SMTP_HOST: smtp.gmail.com
+  SMTP_PORT: "587"

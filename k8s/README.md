@@ -54,7 +54,7 @@ kubectl apply -f k8s/namespace.yaml
 .\k8s\setup-secrets.ps1 -Context docker-desktop
 ```
 
-The helper reads only DATABASE_PASSWORD and DEMO_PASSWORD, constructs a Secret in memory, and sends it to the explicitly named context without printing values. No real secret is checked into the manifests. Kubernetes Secret base64 encoding is not encryption; restrict RBAC and use encryption at rest or an external secrets manager for a real deployment.
+The helper reads DATABASE_PASSWORD, DEMO_PASSWORD and the optional SMTP_USERNAME, SMTP_PASSWORD and SMTP_FROM values, constructs a Secret in memory, and sends it to the explicitly named context without printing values. No real secret is checked into the manifests. Kubernetes Secret base64 encoding is not encryption; restrict RBAC and use encryption at rest or an external secrets manager for a real deployment.
 
 If your Docker Hub repositories are private, configure a namespace-scoped image-pull secret and add imagePullSecrets to both application pod specifications before deploying. Prefer your platform's credential integration. Publishing public images or making a repository public is a separate decision.
 
@@ -151,3 +151,6 @@ kubectl -n raksha create secret tls raksha-tls --cert=path/to/fullchain.pem --ke
 Uncomment tls in both Ingress resources and set COOKIE_SECURE to "true" in your chosen deployment file. Reapply and run `kubectl -n raksha rollout restart deployment/raksha-api` to pick up the environment change. Configure HTTPS redirection and certificate renewal through your controller and certificate tooling.
 
 See the [Kubernetes Ingress documentation](https://kubernetes.io/docs/concepts/services-networking/ingress/) for controller, class and TLS requirements. Local rendering does not verify public DNS, routing or certificates on a live cluster.
+
+
+SMTP configuration and recipient setup: see [Email alerts](../docs/EMAIL_ALERTS.md). The single YAML includes optional SMTP secret fields; do not commit actual app passwords.

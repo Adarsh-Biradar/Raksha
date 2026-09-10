@@ -21,6 +21,7 @@ const admin=client(),viewer=client(),analyst=client(),anonymous=client();
 assert.equal((await anonymous.request('/transactions')).status,401);
 assert.equal((await anonymous.request('/simulations',{method:'POST',body:{scenario:'NORMAL'}})).status,403,'CSRF enforced');
 await admin.login('admin');await viewer.login('viewer');await analyst.login('analyst');
+assert.equal((await admin.request('/notifications/settings')).data.enabled,false,'Pause automatic Email alerts before generating smoke-test transactions');
 assert.equal((await viewer.request('/simulations',{method:'POST',body:{scenario:'NORMAL'}})).status,403,'viewer cannot mutate');
 assert.equal((await analyst.request('/rules')).status,403,'analyst cannot configure policy');
 const id='test-'+randomUUID();

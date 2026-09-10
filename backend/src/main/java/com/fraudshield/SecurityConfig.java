@@ -37,7 +37,7 @@ public class SecurityConfig {
   http.authorizeHttpRequests(auth -> auth
    .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
    .requestMatchers("/api/csrf","/api/auth/login","/actuator/health").permitAll()
-   .requestMatchers("/api/rules/**","/api/audit-events","/api/jobs/**").hasRole("ADMIN")
+   .requestMatchers("/api/rules/**","/api/audit-events","/api/jobs/**","/api/notifications/**").hasRole("ADMIN")
    .requestMatchers(org.springframework.http.HttpMethod.POST,"/api/**").hasAnyRole("ADMIN","ANALYST")
    .anyRequest().authenticated())
    .formLogin(form -> form.loginProcessingUrl("/api/auth/login")

@@ -1,4 +1,22 @@
 spring:
+  task:
+    scheduling:
+      pool:
+        size: 2
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.ssl.checkserveridentity: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/fraudshield}
     username: ${DATABASE_USER:fraudshield}
@@ -18,6 +36,9 @@ server:
   error:
     include-message: never
 management:
+  health:
+    mail:
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -26,5 +47,6 @@ management:
     health:
       show-details: never
 app:
+  mail-from: ${SMTP_FROM:}
   demo-password: ${DEMO_PASSWORD}
   worker-enabled: ${WORKER_ENABLED:true}

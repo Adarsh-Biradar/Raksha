@@ -134,3 +134,8 @@ API additions (session/CSRF requirements unchanged):
 - POST /api/transactions: additionally accepts optional ipAddress and phoneNumber. All previous required fields and the Idempotency-Key header remain supported.
 
 Flyway V2 adds the rule catalog and nullable transaction signal fields without clearing existing data. Deploy the updated API and web images together. Tests: Java package and React production build passed; scripts/smoke.mjs and scripts/rules-smoke.mjs passed against Docker. The rules test creates synthetic transactions, restores the original rule configurations, and leaves their audit/version history intact. Browser verification covered rule visibility, merchant submission through scoring, night mode and a 390px phone viewport. Container images were rebuilt locally; publishing and Kubernetes rollout are separate steps.
+
+
+## Management email alerts
+
+Administrators can now open **Email alerts** to manage recipients, select severity, pause/resume email, send a test and inspect retry/delivery status. SMTP uses server-side environment credentials and a durable database outbox. See [email setup and operations](docs/EMAIL_ALERTS.md). Pause automatic notifications before running synthetic fraud smoke tests. Local Gmail sending was verified; Kubernetes SMTP secrets still need to be provisioned in the target cluster.

@@ -229,3 +229,4 @@ input::placeholder,textarea::placeholder{color:#809486}
 .transaction-fields{border:0;padding:0;margin:0;min-width:0}
 .settings-form .small{overflow-wrap:anywhere}
 @media(max-width:700px){.rule-grid{grid-template-columns:1fr}.rule-card{padding:16px}.rule-actions .button{flex:1}}
+.smtp-details{margin:20px 0}.smtp-details>div{padding:10px 0;border-bottom:1px solid #dce5df}.smtp-details dd{margin:4px 0 0;overflow-wrap:anywhere}[data-theme=dark] .smtp-details>div{border-color:#2a3b30}

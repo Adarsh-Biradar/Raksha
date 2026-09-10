@@ -21,6 +21,7 @@ function client(){
 // Run against local sandbox; restores rule settings in finally.
 const admin=client(),analyst=client(),viewer=client();
 await admin.login('admin');await analyst.login('analyst');await viewer.login('viewer');
+assert.equal((await admin.request('/notifications/settings')).data.enabled,false,'Pause automatic Email alerts before generating smoke-test transactions');
 const original=(await admin.request('/rules/catalog')).data;
 assert.equal(original.length,8);
 const saved=new Map(original.map(r=>[r.code,r]));
