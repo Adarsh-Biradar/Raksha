@@ -26,7 +26,7 @@ public class SecurityConfig {
  }
  @Bean ApplicationRunner seed(JdbcTemplate db, PasswordEncoder encoder, @Value("${app.demo-password}") String password) {
   return args -> {
-   if(password.length()<16) throw new IllegalArgumentException("DEMO_PASSWORD must contain at least 16 characters");
+   if(password.length()<10) throw new IllegalArgumentException("DEMO_PASSWORD must contain at least 10 characters");
    for(String role : new String[]{"ADMIN","ANALYST","VIEWER"}) {
     db.update("INSERT INTO app_users(email,password_hash,role) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING",
       role.toLowerCase()+"@fraudshield.demo", encoder.encode(password),role);

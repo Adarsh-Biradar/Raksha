@@ -111,7 +111,7 @@ References: [Kubernetes probes](https://kubernetes.io/docs/tasks/configure-pod-c
 
 ## Single-file deployment
 
-Alternatively, use [raksha-k8s.yml](../raksha-k8s.yml) from the project root. This standalone bundle includes the namespace, Secret template, configuration, PostgreSQL storage, API, web, and services. Replace both Secret password placeholders before applying; use the existing database password if reusing storage, and choose a demo password of at least 16 characters. Keep real credentials out of version control. This bundle is a snapshot; regenerate it if the modular manifests change.
+Alternatively, use [raksha-k8s.yml](../raksha-k8s.yml) from the project root. This standalone bundle includes the namespace, Secret template, configuration, PostgreSQL storage, API, web, and services. Replace both Secret password placeholders before applying; use the existing database password if reusing storage, and choose a demo password of at least 10 characters. Keep real credentials out of version control. This bundle is a snapshot; regenerate it if the modular manifests change.
 
 ```powershell
 kubectl apply -f raksha-k8s.yml

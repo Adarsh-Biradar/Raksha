@@ -9,7 +9,7 @@ Get-Content -LiteralPath $taskEnvPath | ForEach-Object {
   if ($_ -match '^([A-Z_]+)=(.*)$') { $taskEntries[$matches[1]] = $matches[2] }
 }
 if ([string]::IsNullOrWhiteSpace($taskEntries['DATABASE_PASSWORD'])) { throw 'DATABASE_PASSWORD is required.' }
-if ([string]::IsNullOrWhiteSpace($taskEntries['DEMO_PASSWORD']) -or $taskEntries['DEMO_PASSWORD'].Length -lt 16) { throw 'DEMO_PASSWORD must contain at least 16 characters.' }
+if ([string]::IsNullOrWhiteSpace($taskEntries['DEMO_PASSWORD']) -or $taskEntries['DEMO_PASSWORD'].Length -lt 10) { throw 'DEMO_PASSWORD must contain at least 10 characters.' }
 # Construct JSON in memory so passwords never appear in command arguments or files.
 $taskSecret = @{
   apiVersion = 'v1'
