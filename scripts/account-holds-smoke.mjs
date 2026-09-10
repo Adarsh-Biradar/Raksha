@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
@@ -54,6 +55,17 @@ try {
  openCase=(await admin.request('/alerts')).data.find(a=>a.transaction_id===again.id);
  openCase=(await action(analyst,openCase,{action:'CLAIM'})).data;
  assert.equal((await action(analyst,openCase,{action:'RESOLVE',reason:'Synthetic fraud investigated; release per hold policy',outcome:'CONFIRMED_FRAUD'})).status,200);openCase=null;
+ const queuedAccount='queue-'+randomUUID(),q1=randomUUID(),q2=randomUUID();
+ const sql=`BEGIN;
+ INSERT INTO transactions(id,event_id,payload_hash,account_id,amount_minor,currency,merchant,country,device_id,failed_attempts,occurred_at,phone_number) VALUES
+ ('${q1}','${q1}','test','${queuedAccount}',10000,'INR','Queue hold test','IN','test',0,now()-interval '2 seconds','${phone}'),
+ ('${q2}','${q2}','test','${queuedAccount}',10000,'INR','Queue hold test','IN','test',0,now()-interval '1 second',NULL);
+ INSERT INTO scoring_jobs(id,transaction_id) VALUES('${randomUUID()}','${q1}'),('${randomUUID()}','${q2}'); COMMIT;`;
+ execFileSync('docker',['compose','exec','-T','postgres','psql','-U','fraudshield','-d','fraudshield','-v','ON_ERROR_STOP=1'],{input:sql,stdio:['pipe','pipe','pipe']});
+ assert.equal((await terminal(q1)).score,100);assert.equal((await terminal(q2)).status,'BLOCKED','Already queued transaction is blocked by worker');
+ openCase=(await admin.request('/alerts')).data.find(a=>a.transaction_id===q1);openCase=(await action(analyst,openCase,{action:'CLAIM'})).data;
+ assert.equal((await action(analyst,openCase,{action:'RESOLVE',reason:'Queued hold test complete',outcome:'FALSE_POSITIVE'})).status,200);openCase=null;
+ console.log('PASS: already queued transactions are blocked before scoring.');
  const audit=(await admin.request('/audit-events')).data;
  assert.ok(audit.some(a=>a.action==='ACCOUNT_HELD'&&a.target===account));assert.ok(audit.some(a=>a.action==='ACCOUNT_HOLD_RELEASED'&&a.target===account));assert.ok(audit.some(a=>a.action==='TRANSACTION_BLOCKED'));
  console.log('PASS: hold at 100, concurrent blocking, account isolation, idempotency, authorization, claimed resolution, release, no replay, re-hold and audit.');
@@ -61,4 +73,5 @@ try {
  if(openCase){if(!openCase.assignee)openCase=(await action(analyst,openCase,{action:'CLAIM'})).data;await action(analyst,openCase,{action:'RESOLVE',reason:'Test cleanup',outcome:'FALSE_POSITIVE'});}
  await config({enabled:rule.enabled,points:rule.points,matchValues:rule.match_values});await mail(emails.enabled);
 }
+
 

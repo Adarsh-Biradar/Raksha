@@ -143,3 +143,13 @@ Administrators can now open **Email alerts** to manage recipients, select severi
 ## Rule Lab
 
 Administrators can now detect repeated equal-amount payments, preview historical impact, and observe a rule in shadow mode before activation. Open **Rule Lab** in the navigation. The new rule starts Off. See the [demo steps, API and evaluation boundaries](docs/RULE_LAB.md).
+
+## Account holds after a 100-point assessment
+
+New assessments scoring exactly 100 place the Customer account ID on hold. This is a risk score, not an INR amount. Subsequent attempts are stored with status BLOCKED and no score, and are not queued. The worker also checks holds before scoring already queued transactions. Account locks serialize ingestion, scoring and case resolution. Other account IDs remain independent. This is a sandbox control and does not freeze a real bank account.
+
+The triggering investigation shows Account held. Open it, Assign to me, record an outcome and evidence, then Resolve case. Only its assigned administrator/analyst can resolve it. Resolution releases that case's hold for either outcome; any other active hold still applies. Blocked attempts never replay, including idempotent retries: create a fresh event after release. A new 100-point assessment can hold the account again.
+
+Create transaction and transaction details show the hold; Transactions supports a Blocked filter. Hold creation, blocked attempts and release are audited. Blocked attempts are excluded from behavioral and repeated-amount history. Flyway V5 adds the tables/status; historical 100-point assessments do not retroactively create holds.
+
+Validation: `node scripts/account-holds-smoke.mjs` exercises the local Docker stack, pauses/restores email and the test phone rule, and leaves synthetic records and audit history. Tests cover blocking at ingestion and in the queue, concurrent submissions, account isolation, idempotency conflicts, assignment/authorization, both resolution outcomes, no replay and re-holding. Deploy updated API and web images together.
