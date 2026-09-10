@@ -14,8 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class NotificationController {
  final JdbcTemplate db; final FraudService fraud; final EmailAlerts mail;
  public NotificationController(JdbcTemplate db,FraudService fraud,EmailAlerts mail){this.db=db;this.fraud=fraud;this.mail=mail;}
- @GetMapping("/settings") Map<String,Object> settings(){
-  Map<String,Object> result=new HashMap<>(db.queryForMap("SELECT * FROM notification_settings WHERE id=1"));
+ @GetMapping("/settings") Map<String,Object> settings(Principal actor){
+  Map<String,Object> result=new HashMap<>(db.queryForMap("SELECT * FROM notification_settings WHERE org_id=?",OrgUserDetails.of(actor)));
   result.put("smtp",Map.of("host",mail.host,"port",mail.port,"sender",mail.from,"configured",mail.configured(),"security","STARTTLS required"));
   return result;
  }
@@ -36,27 +36,30 @@ public class NotificationController {
   if(recipients.size()>20)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Maximum 20 management recipients");
   if(input.enabled()&&(recipients.isEmpty()||!mail.configured()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Configure SMTP and at least one recipient before enabling alerts");
   String merchantPhone=input.merchantPhone()==null||input.merchantPhone().isBlank()?null:input.merchantPhone().trim();
-  int changed=db.update("UPDATE notification_settings SET version=version+1,enabled=?,minimum_classification=?,recipients=?,merchant_phone=? WHERE id=1 AND version=?",input.enabled(),input.minimumClassification(),String.join("\n",recipients),merchantPhone,input.version());
+  UUID org=OrgUserDetails.of(actor);
+  int changed=db.update("UPDATE notification_settings SET version=version+1,enabled=?,minimum_classification=?,recipients=?,merchant_phone=? WHERE org_id=? AND version=?",input.enabled(),input.minimumClassification(),String.join("\n",recipients),merchantPhone,org,input.version());
   if(changed==0)throw new ResponseStatusException(HttpStatus.CONFLICT,"Notification settings changed; reload and retry");
-  fraud.audit(actor.getName(),"EMAIL_SETTINGS_UPDATED","1",fraud.encode(Map.of("enabled",input.enabled(),"minimumClassification",input.minimumClassification(),"recipientCount",recipients.size())));
-  return settings();
+  fraud.audit(actor.getName(),"EMAIL_SETTINGS_UPDATED","1",fraud.encode(Map.of("enabled",input.enabled(),"minimumClassification",input.minimumClassification(),"recipientCount",recipients.size())),org);
+  return settings(actor);
  }
- @GetMapping("/deliveries") List<Map<String,Object>> deliveries(){return db.queryForList("SELECT * FROM email_deliveries ORDER BY created_at DESC LIMIT 100");}
- @GetMapping("/sms-deliveries") List<Map<String,Object>> smsDeliveries(){return db.queryForList("SELECT * FROM sms_deliveries ORDER BY created_at DESC LIMIT 100");}
+ @GetMapping("/deliveries") List<Map<String,Object>> deliveries(Principal actor){return db.queryForList("SELECT * FROM email_deliveries WHERE org_id=? ORDER BY created_at DESC LIMIT 100",OrgUserDetails.of(actor));}
+ @GetMapping("/sms-deliveries") List<Map<String,Object>> smsDeliveries(Principal actor){return db.queryForList("SELECT * FROM sms_deliveries WHERE org_id=? ORDER BY created_at DESC LIMIT 100",OrgUserDetails.of(actor));}
  @PostMapping("/test") @Transactional Map<String,Object> test(Principal actor){
-  Map<String,Object> settings=db.queryForMap("SELECT * FROM notification_settings WHERE id=1 FOR UPDATE");
+  UUID org=OrgUserDetails.of(actor);
+  Map<String,Object> settings=db.queryForMap("SELECT * FROM notification_settings WHERE org_id=? FOR UPDATE",org);
   List<String> recipients=EmailAlerts.recipients(settings.get("recipients"));
   if(!mail.configured()||recipients.isEmpty())throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Save at least one recipient and configure SMTP first");
-  if(db.queryForObject("SELECT count(*) FROM email_deliveries WHERE classification='TEST' AND created_at>now()-interval '1 minute'",Long.class)>0)
+  if(db.queryForObject("SELECT count(*) FROM email_deliveries WHERE org_id=? AND classification='TEST' AND created_at>now()-interval '1 minute'",Long.class,org)>0)
    throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,"Wait one minute before another test");
   List<UUID> ids=new ArrayList<>();
-  for(String recipient:recipients){UUID id=UUID.randomUUID();ids.add(id);db.update("INSERT INTO email_deliveries(id,recipient,classification) VALUES(?,?,'TEST')",id,recipient);}
-  fraud.audit(actor.getName(),"EMAIL_TEST_QUEUED","1","Recipients="+recipients.size());
+  for(String recipient:recipients){UUID id=UUID.randomUUID();ids.add(id);db.update("INSERT INTO email_deliveries(id,recipient,classification,org_id) VALUES(?,?,'TEST',?)",id,recipient,org);}
+  fraud.audit(actor.getName(),"EMAIL_TEST_QUEUED","1","Recipients="+recipients.size(),org);
   return Map.of("queued",ids.size(),"ids",ids);
  }
  @PostMapping("/deliveries/{id}/retry") @Transactional Map<String,Object> retry(@PathVariable UUID id,Principal actor){
-  Map<String,Object> settings=db.queryForMap("SELECT * FROM notification_settings WHERE id=1 FOR SHARE");
-  List<Map<String,Object>> rows=db.queryForList("SELECT * FROM email_deliveries WHERE id=? FOR UPDATE",id);
+  UUID org=OrgUserDetails.of(actor);
+  Map<String,Object> settings=db.queryForMap("SELECT * FROM notification_settings WHERE org_id=? FOR SHARE",org);
+  List<Map<String,Object>> rows=db.queryForList("SELECT * FROM email_deliveries WHERE id=? AND org_id=? FOR UPDATE",id,org);
   if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Delivery not found");
   Map<String,Object> row=rows.get(0);
   if(!"FAILED".equals(row.get("state")))throw new ResponseStatusException(HttpStatus.CONFLICT,"Only failed deliveries can be retried");
@@ -64,7 +67,7 @@ public class NotificationController {
    (!"TEST".equals(row.get("classification"))&&!Boolean.TRUE.equals(settings.get("enabled"))))
    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Enable notifications and keep this recipient configured before retrying");
   db.update("UPDATE email_deliveries SET state='PENDING',attempts=0,available_at=now(),last_error=NULL WHERE id=?",id);
-  fraud.audit(actor.getName(),"EMAIL_RETRY_QUEUED",id,"Manual retry");
+  fraud.audit(actor.getName(),"EMAIL_RETRY_QUEUED",id,"Manual retry",org);
   return Map.of("queued",true);
  }
 }
