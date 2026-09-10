@@ -1,0 +1,54 @@
+# Web keeps the existing Ingress name so apply updates the previous apex route.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raksha
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering BOTH hostnames:
+  # tls:
+  #   - hosts:
+  #       - raksha.rayududev.live
+  #     secretName: raksha-tls
+  rules:
+    - host: raksha.rayududev.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: raksha-web
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raksha-api
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering BOTH hostnames:
+  # tls:
+  #   - hosts:
+  #       - api-raksha.rayududev.live
+  #     secretName: raksha-tls
+  rules:
+    - host: api-raksha.rayududev.live
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080

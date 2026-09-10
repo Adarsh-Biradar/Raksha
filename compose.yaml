@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fraudshield
+      POSTGRES_USER: fraudshield
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fraudshield -d fraudshield"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+  api:
+    image: ${DOCKERHUB_USERNAME:-adarshbiradar}/raksha-api:${IMAGE_TAG:-latest}
+    build: ./backend
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/fraudshield
+      DATABASE_USER: fraudshield
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?Set DEMO_PASSWORD in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      WORKER_ENABLED: ${WORKER_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  web:
+    image: ${DOCKERHUB_USERNAME:-adarshbiradar}/raksha-web:${IMAGE_TAG:-latest}
+    build: ./frontend
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8088}:8080"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  postgres_data:

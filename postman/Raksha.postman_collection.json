@@ -1,0 +1,1067 @@
+{
+  "info": {
+    "_postman_id": "c24d8e09-10bf-4b79-b614-3053b807d78f",
+    "name": "Raksha — Local API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "All business APIs implemented in this repository. Import Raksha.local.postman_environment.json, select it, and set password locally using DEMO_PASSWORD in .env. Send Authentication / Login first. Session cookies are managed by Postman; keep its cookie jar enabled and use the same baseUrl hostname throughout. Before every mutation, a collection pre-request script obtains a fresh CSRF token. No real password or session is included in this export. Admin is needed for Rules, Audit and Recovery. Use requests individually: simulations create synthetic data, resolutions close cases, rules updates change future scoring. Optional recovery requires a real DEAD job. See postman/README.md for workflow and units."
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8088",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "admin@fraudshield.demo",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accountId",
+      "value": "postman-account-001",
+      "type": "string"
+    },
+    {
+      "key": "transactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "occurredAt",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lastEventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lastTransactionPayload",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alertId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alertVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "policyVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "amountThresholdMinor",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "velocityLimit",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reviewThreshold",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "highThreshold",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Refresh the masked CSRF token for the current cookie session before each mutation.",
+          "// Login rotates the session; fetching on every write avoids using its pre-login token.",
+          "if (![\"GET\",\"HEAD\",\"OPTIONS\"].includes(pm.request.method)) {",
+          "  const response = await pm.sendRequest({",
+          "    url: pm.variables.replaceIn(\"{{baseUrl}}/api/csrf\"), method: \"GET\",",
+          "    header: { Accept: \"application/json\" }",
+          "  });",
+          "  if (response.code !== 200) throw new Error(\"Cannot obtain CSRF token; check baseUrl and server availability.\");",
+          "  const csrf = response.json();",
+          "  if (!csrf.token || !csrf.headerName) throw new Error(\"Invalid CSRF response\");",
+          "  pm.request.headers.upsert({ key: csrf.headerName, value: csrf.token });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Authentication",
+      "item": [
+        {
+          "name": "Get CSRF token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/csrf",
+            "description": "Public endpoint. Diagnostic request only: writes fetch a fresh token automatically."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"CSRF fields present\",()=>{const c=pm.response.json();pm.expect(c.token).to.be.a(\"string\");pm.expect(c.headerName).to.be.a(\"string\");});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Session login. Set password in your selected environment from DEMO_PASSWORD in .env. Default user is admin; analyst and viewer accounts are also available.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"password\"))throw new Error(\"Set the environment password to DEMO_PASSWORD from your local .env file.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Current user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": "Returns email and role for the current session."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Transactions",
+      "description": "Admin/Analyst may create events. Everyone signed in may read them. Amounts are integer paise; 125000 means INR 1,250.",
+      "item": [
+        {
+          "name": "Create transaction — edit amount and merchant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{eventId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/transactions",
+            "description": "Edit the JSON fields as needed. A fresh eventId and UTC timestamp are generated each time you Send this request. Idempotency-Key equals eventId. Saves transactionId and the exact payload for replay. Returns 202 while scoring runs in the background.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"amountMinor\": 125000,\n  \"currency\": \"INR\",\n  \"merchant\": \"Postman Store\",\n  \"country\": \"IN\",\n  \"deviceId\": \"trusted-device\",\n  \"failedAttempts\": 0,\n  \"occurredAt\": \"{{occurredAt}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"eventId\",\"postman-\"+pm.variables.replaceIn(\"{{$guid}}\"));",
+                  "pm.collectionVariables.set(\"occurredAt\",new Date().toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 202\", () => pm.response.to.have.status(202));",
+                  "if(pm.response.code===202){const data=pm.response.json();pm.collectionVariables.set(\"transactionId\",data.id);pm.collectionVariables.set(\"lastTransactionPayload\",pm.variables.replaceIn(pm.request.body.raw));pm.collectionVariables.set(\"lastEventId\",pm.variables.get(\"eventId\"));}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replay last transaction — no duplicate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{lastEventId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/transactions",
+            "description": "Resends the exact last created payload, including its original timestamp. Expect duplicate=true and the same transactionId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{lastTransactionPayload}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"lastTransactionPayload\"))throw new Error(\"Missing lastTransactionPayload: run the preceding setup/read request first.\");",
+                  "if(!pm.variables.get(\"lastEventId\"))throw new Error(\"Missing lastEventId: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 202\", () => pm.response.to.have.status(202));",
+                  "pm.test(\"Duplicate reused existing event\",()=>{const d=pm.response.json();pm.expect(d.duplicate).to.eql(true);pm.expect(d.id).to.eql(pm.collectionVariables.get(\"transactionId\"));});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject conflicting replay — expected 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{lastEventId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/transactions",
+            "description": "Uses the same event ID but changes the amount by one paise. The original event remains unchanged.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{conflictingPayload}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"lastTransactionPayload\"))throw new Error(\"Missing lastTransactionPayload: run the preceding setup/read request first.\");",
+                  "if(!pm.variables.get(\"lastEventId\"))throw new Error(\"Missing lastEventId: run the preceding setup/read request first.\");",
+                  "const payload=JSON.parse(pm.collectionVariables.get(\"lastTransactionPayload\"));payload.amountMinor+=1;pm.variables.set(\"conflictingPayload\",JSON.stringify(payload));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/transactions?search=&classification=ALL&page=0",
+            "description": "50 records per page. Search matches account, merchant or event ID. Classification filter: ALL, NORMAL, SUSPICIOUS, HIGH_RISK, PENDING, FAILED. Page starts at zero."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Transaction details and assessment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/transactions/{{transactionId}}",
+            "description": "Returns status, score, explanations, feature snapshot and policy version. PENDING is not NORMAL. Re-send after a few seconds if analysis is still pending."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"transactionId\"))throw new Error(\"Missing transactionId: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Dashboard",
+      "item": [
+        {
+          "name": "Dashboard summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/dashboard",
+            "description": "Totals, volume in paise, pending analyses, open alerts, confirmed fraud, dead jobs and the seven-day activity series."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Simulations",
+      "description": "Each scenario creates a new account and eight historical transactions. The result stores accountId and selects the final new transaction as transactionId.",
+      "item": [
+        {
+          "name": "Simulate NORMAL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/simulations",
+            "description": "Typical spending: adds one new normal transaction.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scenario\": \"NORMAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const d=pm.response.json();pm.collectionVariables.set(\"accountId\",d.accountId);pm.collectionVariables.set(\"transactionId\",d.transactionIds[d.transactionIds.length-1]);pm.collectionVariables.unset(\"alertId\");pm.collectionVariables.unset(\"alertVersion\");}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Simulate VELOCITY",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/simulations",
+            "description": "Eight rapid payments plus historical baseline.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scenario\": \"VELOCITY\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const d=pm.response.json();pm.collectionVariables.set(\"accountId\",d.accountId);pm.collectionVariables.set(\"transactionId\",d.transactionIds[d.transactionIds.length-1]);pm.collectionVariables.unset(\"alertId\");pm.collectionVariables.unset(\"alertVersion\");}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Simulate LATE",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/simulations",
+            "description": "One event delivered two hours late.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scenario\": \"LATE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const d=pm.response.json();pm.collectionVariables.set(\"accountId\",d.accountId);pm.collectionVariables.set(\"transactionId\",d.transactionIds[d.transactionIds.length-1]);pm.collectionVariables.unset(\"alertId\");pm.collectionVariables.unset(\"alertVersion\");}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Simulate TAKEOVER",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/simulations",
+            "description": "Large payment, new device/country and failed attempts. Run this, wait a few seconds, then List alerts to start investigation.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scenario\": \"TAKEOVER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const d=pm.response.json();pm.collectionVariables.set(\"accountId\",d.accountId);pm.collectionVariables.set(\"transactionId\",d.transactionIds[d.transactionIds.length-1]);pm.collectionVariables.unset(\"alertId\");pm.collectionVariables.unset(\"alertVersion\");}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 Investigations",
+      "description": "Run Simulate TAKEOVER, wait for scoring, List alerts, Claim selected case, Add note, then Resolve. Alert ID and concurrency version are saved automatically. A resolved case cannot be resolved again.",
+      "item": [
+        {
+          "name": "List alerts — select current transaction",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/alerts",
+            "description": "Up to 100 prioritized alerts. This request selects only an alert matching transactionId; it will not silently choose another account's case."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const selected=pm.response.json().find(a=>a.transaction_id===pm.collectionVariables.get(\"transactionId\"));pm.collectionVariables.unset(\"alertId\");pm.collectionVariables.unset(\"alertVersion\");if(selected){pm.collectionVariables.set(\"alertId\",selected.id);pm.collectionVariables.set(\"alertVersion\",selected.version);}else console.warn(\"No matching alert yet. Run TAKEOVER, allow scoring to finish, then resend List alerts.\");}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Claim selected case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}/action",
+            "description": "Assigns the selected case to the logged-in analyst/admin. Another analyst cannot take an already-owned case. Requires the current version.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"version\": {{alertVersion}}, \"action\": \"CLAIM\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"alertId\"))throw new Error(\"Missing alertId: run the preceding setup/read request first.\");",
+                  "if(pm.variables.get(\"alertVersion\")==null||pm.variables.get(\"alertVersion\")===\"\")throw new Error(\"Run List alerts first to capture alertVersion.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const a=pm.response.json();pm.collectionVariables.set(\"alertId\",a.id);pm.collectionVariables.set(\"alertVersion\",a.version);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add investigation note",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}/notes",
+            "description": "Adds an attributed note; maximum 2,000 characters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Reviewed amount, device and location signals. This is a synthetic Postman test.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"alertId\"))throw new Error(\"Missing alertId: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List investigation notes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}/notes",
+            "description": "Notes in creation order."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"alertId\"))throw new Error(\"Missing alertId: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resolve selected case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/alerts/{{alertId}}/action",
+            "description": "Claim this case first. Change outcome to FALSE_POSITIVE or CONFIRMED_FRAUD and record the evidence in reason. Successful resolution increments alertVersion and is audited.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"version\": {{alertVersion}}, \"action\": \"RESOLVE\", \"outcome\": \"CONFIRMED_FRAUD\", \"reason\": \"Synthetic takeover pattern verified using the transaction evidence.\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"alertId\"))throw new Error(\"Missing alertId: run the preceding setup/read request first.\");",
+                  "if(pm.variables.get(\"alertVersion\")==null||pm.variables.get(\"alertVersion\")===\"\")throw new Error(\"Run List alerts and Claim first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const a=pm.response.json();pm.collectionVariables.set(\"alertId\",a.id);pm.collectionVariables.set(\"alertVersion\",a.version);}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 Rules — admin only",
+      "item": [
+        {
+          "name": "Read current risk policy",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/rules",
+            "description": "Captures the live policy version and all editable settings. Run before Update to avoid replacing live settings with hard-coded defaults."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const p=pm.response.json();pm.collectionVariables.set(\"policyVersion\",p.version);pm.collectionVariables.set(\"amountThresholdMinor\",p.amount_threshold_minor);pm.collectionVariables.set(\"velocityLimit\",p.velocity_limit);pm.collectionVariables.set(\"reviewThreshold\",p.review_threshold);pm.collectionVariables.set(\"highThreshold\",p.high_threshold);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update risk policy",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/rules",
+            "description": "MANUAL: changes future scoring and increments policy version. Run Read first; edit the body or collection values intentionally. amountThresholdMinor is paise; reviewThreshold must be lower than highThreshold. Existing assessments are preserved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n \"version\": {{policyVersion}},\n \"amountThresholdMinor\": {{amountThresholdMinor}},\n \"velocityLimit\": {{velocityLimit}},\n \"reviewThreshold\": {{reviewThreshold}},\n \"highThreshold\": {{highThreshold}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"policyVersion\"))throw new Error(\"Missing policyVersion: run the preceding setup/read request first.\");",
+                  "if(!pm.variables.get(\"amountThresholdMinor\"))throw new Error(\"Missing amountThresholdMinor: run the preceding setup/read request first.\");",
+                  "if(!pm.variables.get(\"velocityLimit\"))throw new Error(\"Missing velocityLimit: run the preceding setup/read request first.\");",
+                  "if(!pm.variables.get(\"reviewThreshold\"))throw new Error(\"Missing reviewThreshold: run the preceding setup/read request first.\");",
+                  "if(!pm.variables.get(\"highThreshold\"))throw new Error(\"Missing highThreshold: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const p=pm.response.json();pm.collectionVariables.set(\"policyVersion\",p.version);pm.collectionVariables.set(\"amountThresholdMinor\",p.amount_threshold_minor);pm.collectionVariables.set(\"velocityLimit\",p.velocity_limit);pm.collectionVariables.set(\"reviewThreshold\",p.review_threshold);pm.collectionVariables.set(\"highThreshold\",p.high_threshold);}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 Audit — admin only",
+      "item": [
+        {
+          "name": "Latest audit events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/audit-events",
+            "description": "Latest 100 transaction, policy and investigation events."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 Recovery — admin only, optional",
+      "description": "Do not run Retry unless a dead job exists. This folder does not generate failures.",
+      "item": [
+        {
+          "name": "List dead jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs",
+            "description": "Only DEAD jobs are returned. Selects the first jobId if present; an empty result means there is nothing to retry."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if(pm.response.code===200){const rows=pm.response.json();pm.collectionVariables.unset(\"jobId\");if(rows.length)pm.collectionVariables.set(\"jobId\",rows[0].id);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Retry selected dead job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/retry",
+            "description": "MANUAL: resets the job attempts and queues a failed transaction for scoring. Requires a genuine DEAD job from List dead jobs."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"jobId\"))throw new Error(\"Missing jobId: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 Sign out",
+      "item": [
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/logout",
+            "description": "Ends this Postman session. Login again before calling protected APIs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,417 @@
+# Raksha: complete single-file Kubernetes deployment.
+# Replace BOTH Secret placeholders before applying. Never commit real passwords.
+# For existing storage, use its current password; this does not reset stored passwords.
+# Images must be available to the cluster. Requires a default StorageClass.
+# Deploy: kubectl apply -f raksha-k8s.yml
+# Open: kubectl -n raksha port-forward service/raksha-web 8089:80
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: raksha
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: raksha-secrets
+  namespace: raksha
+type: Opaque
+stringData:
+  DATABASE_PASSWORD: "REPLACE_WITH_YOUR_DATABASE_PASSWORD"
+  DEMO_PASSWORD: "REPLACE_WITH_YOUR_DEMO_PASSWORD_MIN_16_CHARACTERS"
+---
+
+apiVersion: v1
+data:
+  COOKIE_SECURE: "false"
+  DATABASE_URL: jdbc:postgresql://postgres:5432/fraudshield
+  DATABASE_USER: fraudshield
+  POSTGRES_DB: fraudshield
+  POSTGRES_USER: fraudshield
+  WORKER_ENABLED: "true"
+kind: ConfigMap
+metadata:
+  name: raksha-config
+  namespace: raksha
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: api
+  namespace: raksha
+spec:
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: raksha-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: raksha
+  name: postgres
+  namespace: raksha
+spec:
+  clusterIP: None
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: postgres
+  selector:
+    app.kubernetes.io/name: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: raksha-web
+  namespace: raksha
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: raksha-web
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: raksha-api
+    app.kubernetes.io/part-of: raksha
+  name: raksha-api
+  namespace: raksha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: raksha-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: raksha-api
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_PASSWORD
+              name: raksha-secrets
+        - name: DEMO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DEMO_PASSWORD
+              name: raksha-secrets
+        - name: SERVER_SHUTDOWN
+          value: graceful
+        - name: SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE
+          value: 25s
+        - name: JAVA_TOOL_OPTIONS
+          value: -XX:MaxRAMPercentage=65.0
+        envFrom:
+        - configMapRef:
+            name: raksha-config
+        image: adarshbiradar/raksha-api:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          periodSeconds: 15
+          tcpSocket:
+            port: http
+          timeoutSeconds: 3
+        name: api
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /actuator/health
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /actuator/health
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+        volumeMounts:
+        - mountPath: /tmp
+          name: temporary
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 40
+      volumes:
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: temporary
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: raksha-web
+    app.kubernetes.io/part-of: raksha
+  name: raksha-web
+  namespace: raksha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: raksha-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: raksha-web
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - image: adarshbiradar/raksha-web:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 15
+        name: web
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 3
+        volumeMounts:
+        - mountPath: /tmp
+          name: temporary
+      securityContext:
+        fsGroup: 101
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - emptyDir:
+          sizeLimit: 64Mi
+        name: temporary
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/part-of: raksha
+  name: postgres
+  namespace: raksha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  serviceName: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              key: POSTGRES_DB
+              name: raksha-config
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              key: POSTGRES_USER
+              name: raksha-config
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_PASSWORD
+              name: raksha-secrets
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 5
+          periodSeconds: 15
+          tcpSocket:
+            port: postgres
+        name: postgres
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - fraudshield
+            - -d
+            - fraudshield
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - fraudshield
+            - -d
+            - fraudshield
+          failureThreshold: 60
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: data
+        - mountPath: /var/run/postgresql
+          name: socket
+      securityContext:
+        fsGroup: 70
+        runAsGroup: 70
+        runAsNonRoot: true
+        runAsUser: 70
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - emptyDir: {}
+        name: socket
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi
+
+---
+# Web keeps the existing Ingress name so apply updates the previous apex route.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raksha
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering BOTH hostnames:
+  # tls:
+  #   - hosts:
+  #       - raksha.rayududev.live
+  #     secretName: raksha-tls
+  rules:
+    - host: raksha.rayududev.live
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: raksha-web
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raksha-api
+  namespace: raksha
+  labels:
+    app.kubernetes.io/part-of: raksha
+spec:
+  # Uses the default IngressClass. Set this if your cluster has no default:
+  # ingressClassName: your-ingress-class
+  # Enable after creating a TLS Secret covering BOTH hostnames:
+  # tls:
+  #   - hosts:
+  #       - api-raksha.rayududev.live
+  #     secretName: raksha-tls
+  rules:
+    - host: api-raksha.rayududev.live
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080

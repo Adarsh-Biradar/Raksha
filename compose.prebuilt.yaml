@@ -1,0 +1,9 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prebuilt
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prebuilt

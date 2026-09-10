@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: raksha-config
+data:
+  # Preserve the existing application schema and database user.
+  DATABASE_URL: jdbc:postgresql://postgres:5432/fraudshield
+  DATABASE_USER: fraudshield
+  POSTGRES_DB: fraudshield
+  POSTGRES_USER: fraudshield
+  # Local port-forward demo uses HTTP. Set true before serving over HTTPS.
+  COOKIE_SECURE: "false"
+  WORKER_ENABLED: "true"
