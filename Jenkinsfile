@@ -35,13 +35,12 @@ pipeline {
         checkout scm
         container('maven') {
           dir('backend') {
+            // mvn itself fails the build (and this stage) on any test failure - that alone is the
+            // gate. No `junit` post-processing step: the junit plugin isn't installed on this
+            // Jenkins instance, and using it here previously crashed the whole pipeline immediately
+            // after a successful test run (NoSuchMethodError, build #17).
             sh 'mvn -B test'
           }
-        }
-      }
-      post {
-        always {
-          junit testResults: 'backend/target/surefire-reports/*.xml', allowEmptyResults: true
         }
       }
     }
