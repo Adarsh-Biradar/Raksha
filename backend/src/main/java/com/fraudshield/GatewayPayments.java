@@ -91,7 +91,7 @@ public class GatewayPayments {
  }
  private boolean apply(JsonNode payment,String actor){return Boolean.TRUE.equals(tx.execute(s->applyLocked(payment,actor)));}
  private boolean applyLocked(JsonNode payment,String actor){
-  var rows=db.queryForList("SELECT g.*,t.amount_minor,t.currency,t.merchant FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE provider_order_id=? FOR UPDATE OF g",payment.path("order_id").asText());
+  var rows=db.queryForList("SELECT g.*,t.amount_minor,t.currency,t.merchant,t.phone_number FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE provider_order_id=? FOR UPDATE OF g",payment.path("order_id").asText());
   if(rows.isEmpty())return false;var g=rows.get(0);
   String next=payment.path("status").asText(),pid=payment.path("id").asText();
   if(!pid.matches("pay_[A-Za-z0-9]+")||!Set.of("created","authorized","captured","failed").contains(next)||!payment.path("amount").isIntegralNumber()||payment.path("amount").asLong(-1)!=((Number)g.get("amount_minor")).longValue()||!g.get("currency").equals(payment.path("currency").asText()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Provider payment does not match the stored amount, currency or payment format");
@@ -104,7 +104,7 @@ public class GatewayPayments {
   if(attempts.isEmpty()||!state.equals(prior)){
    fraud.audit(actor,"PAYMENT_"+state.toUpperCase(Locale.ROOT),g.get("transaction_id"),"payment="+pid);
    if(Set.of("captured","authorized","failed").contains(state))
-    sms.enqueue((UUID)g.get("transaction_id"),"failed".equals(state)?"FAILED":"SUCCESS",(String)g.get("merchant"),((Number)g.get("amount_minor")).longValue(),(String)g.get("currency"));
+    sms.enqueue((UUID)g.get("transaction_id"),"failed".equals(state)?"FAILED":"SUCCESS",(String)g.get("merchant"),((Number)g.get("amount_minor")).longValue(),(String)g.get("currency"),(String)g.get("phone_number"));
   }
   return true;
  }

@@ -28,12 +28,10 @@ public class SmsAlerts {
  }
 
  // Called inside the payment-processing transaction: no network activity here.
- void enqueue(UUID transactionId,String outcome,String merchant,long amountMinor,String currency){
-  Map<String,Object> settings=db.queryForMap("SELECT merchant_phone FROM notification_settings WHERE id=1 FOR SHARE");
-  Object phone=settings.get("merchant_phone");
-  if(phone==null||phone.toString().isBlank())return;
+ void enqueue(UUID transactionId,String outcome,String merchant,long amountMinor,String currency,String recipientPhone){
+  if(recipientPhone==null||recipientPhone.isBlank())return;
   db.update("INSERT INTO sms_deliveries(id,transaction_id,recipient,outcome,merchant,amount_minor,currency) VALUES(?,?,?,?,?,?,?) ON CONFLICT(transaction_id,outcome) DO NOTHING",
-   UUID.randomUUID(),transactionId,phone.toString(),outcome,merchant,amountMinor,currency);
+   UUID.randomUUID(),transactionId,recipientPhone,outcome,merchant,amountMinor,currency);
  }
 
  @Scheduled(fixedDelay=2000)
