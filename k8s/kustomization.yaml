@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - postgres.yaml
+  - redis.yaml
   - api.yaml
   - web.yaml
   - ingress.yaml

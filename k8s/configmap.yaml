@@ -12,5 +12,20 @@ data:
   COOKIE_SECURE: "false"
   WORKER_ENABLED: "true"
 
+  # Sessions and the API rate limiter live in Redis so both work correctly across replicas.
+  # Set SESSION_STORE=none to roll back to single-replica in-memory sessions without a code change.
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  SESSION_STORE: "redis"
+
   SMTP_HOST: smtp.gmail.com
   SMTP_PORT: "587"
+
+  # Optional: AiExplainer/AiEvaluationService degrade gracefully if left blank.
+  AZURE_OPENAI_ENDPOINT: ""
+  AZURE_OPENAI_API_KEY: ""
+  AZURE_OPENAI_DEPLOYMENT: "gpt-5.4-mini"
+
+  # Optional: SmsAlerts marks deliveries FAILED with "SMS not configured" if left blank.
+  HTTPSMS_API_KEY: ""
+  HTTPSMS_FROM_NUMBER: ""

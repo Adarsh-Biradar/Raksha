@@ -13,6 +13,37 @@ pipeline {
         checkout scm
       }
     }
+    // Runs in its own self-contained pod (maven image, defined inline) rather than the kaniko
+    // agent, which has no JDK/Maven. Gates everything after it: a failing test fails the build
+    // before any image is built or pushed.
+    stage('Test') {
+      agent {
+        kubernetes {
+          yaml '''
+            apiVersion: v1
+            kind: Pod
+            spec:
+              containers:
+              - name: maven
+                image: maven:3.9.9-eclipse-temurin-21
+                command: ["sleep"]
+                args: ["infinity"]
+          '''
+        }
+      }
+      steps {
+        checkout scm
+        container('maven') {
+          dir('backend') {
+            // mvn itself fails the build (and this stage) on any test failure - that alone is the
+            // gate. No `junit` post-processing step: the junit plugin isn't installed on this
+            // Jenkins instance, and using it here previously crashed the whole pipeline immediately
+            // after a successful test run (NoSuchMethodError, build #17).
+            sh 'mvn -B test'
+          }
+        }
+      }
+    }
     stage('Build & Push API image') {
       steps {
         container('kaniko-api') {
@@ -35,6 +66,33 @@ pipeline {
               --dockerfile=${WORKSPACE}/frontend/Dockerfile \
               --destination=docker.io/adarshbiradar/raksha-web:${IMAGE_TAG} \
               --destination=docker.io/adarshbiradar/raksha-web:latest
+          '''
+        }
+      }
+    }
+    // Scans the images just pushed to Docker Hub, by reference - no docker-in-docker needed on
+    // this agent. Gates on CRITICAL only (with --ignore-unfixed) so an unfixable base-image CVE
+    // doesn't block every deploy; HIGH/MEDIUM findings are still reported, just non-blocking.
+    stage('Security scan') {
+      agent {
+        kubernetes {
+          yaml '''
+            apiVersion: v1
+            kind: Pod
+            spec:
+              containers:
+              - name: trivy
+                image: aquasec/trivy:latest
+                command: ["sleep"]
+                args: ["infinity"]
+          '''
+        }
+      }
+      steps {
+        container('trivy') {
+          sh '''
+            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 docker.io/adarshbiradar/raksha-api:${IMAGE_TAG}
+            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 docker.io/adarshbiradar/raksha-web:${IMAGE_TAG}
           '''
         }
       }

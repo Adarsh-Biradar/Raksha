@@ -2,6 +2,10 @@ package com.fraudshield;
 import com.fasterxml.jackson.databind.*;
 import java.util.*;
 import java.security.MessageDigest;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -11,9 +15,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class GatewayPayments {
- private final JdbcTemplate db;private final TransactionTemplate tx;private final RazorpayGateway gateway;private final AccountHolds holds;private final FraudService fraud;private final ObjectMapper json;private final SmsAlerts sms;
- public GatewayPayments(JdbcTemplate db,TransactionTemplate tx,RazorpayGateway gateway,AccountHolds holds,FraudService fraud,ObjectMapper json,SmsAlerts sms){this.db=db;this.tx=tx;this.gateway=gateway;this.holds=holds;this.fraud=fraud;this.json=json;this.sms=sms;}
+ private static final Logger log=LoggerFactory.getLogger(GatewayPayments.class);
+ private final JdbcTemplate db;private final TransactionTemplate tx;private final RazorpayGateway gateway;private final AccountHolds holds;private final FraudService fraud;private final ObjectMapper json;private final SmsAlerts sms;private final MeterRegistry meterRegistry;
+ public GatewayPayments(JdbcTemplate db,TransactionTemplate tx,RazorpayGateway gateway,AccountHolds holds,FraudService fraud,ObjectMapper json,SmsAlerts sms,MeterRegistry meterRegistry){this.db=db;this.tx=tx;this.gateway=gateway;this.holds=holds;this.fraud=fraud;this.json=json;this.sms=sms;this.meterRegistry=meterRegistry;}
+ private void paymentEvent(String type){Counter.builder("raksha.payments.events").tag("type",type).register(meterRegistry).increment();}
  private Map<String,Object> one(String sql,Object...args){return db.queryForList(sql,args).stream().findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Payment or transaction not found"));}
+ // Cross-tenant defense in depth: a caller may only act on transactions that belong to their own organization.
+ private void requireOrg(UUID id,UUID org){one("SELECT id FROM transactions WHERE id=? AND org_id=?",id,org);}
  private void eligible(Map<String,Object> t){
   holds.lock((String)t.get("account_id"));
   if(t.get("phone_number")==null)throw new ResponseStatusException(HttpStatus.CONFLICT,"This transaction has no mobile number. Create a new transaction with a mobile number before starting checkout.");
@@ -21,27 +29,31 @@ public class GatewayPayments {
    throw new ResponseStatusException(HttpStatus.CONFLICT,"Account or transaction is blocked. Resolve its investigation and create a new transaction.");
   if(!"SCORED".equals(t.get("status")))throw new ResponseStatusException(HttpStatus.CONFLICT,"Wait for successful risk assessment before checkout.");
  }
- public Map<String,Object> status(UUID id){
+ public Map<String,Object> status(UUID id,UUID org){
+  requireOrg(id,org);
   var t=one("SELECT id,account_id,status,score,amount_minor,currency,merchant,phone_number FROM transactions WHERE id=?",id);
   var orders=db.queryForList("SELECT * FROM gateway_orders WHERE transaction_id=?",id);
   var result=new HashMap<String,Object>();result.put("transaction",t);result.put("order",orders.isEmpty()?Map.of():orders.get(0));
   result.put("attempts",db.queryForList("SELECT payment_id,status,updated_at FROM gateway_attempts WHERE transaction_id=? ORDER BY updated_at DESC",id));
   result.put("accountHeld",!holds.active((String)t.get("account_id")).isEmpty());return result;
  }
- public List<Map<String,Object>> list(){return db.queryForList("SELECT g.*,t.account_id,t.merchant,t.amount_minor,t.score,t.classification FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id ORDER BY g.created_at DESC LIMIT 100");}
- public Map<String,Object> checkout(UUID id,String actor){
+ public List<Map<String,Object>> list(UUID org){return db.queryForList("SELECT g.*,t.account_id,t.merchant,t.amount_minor,t.score,t.classification FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE t.org_id=? ORDER BY g.created_at DESC LIMIT 100",org);}
+ public Map<String,Object> checkout(UUID id,String actor,UUID org){
+  requireOrg(id,org);
+  log.info("Checkout requested transaction={} actor={}",id,actor);
+  paymentEvent("checkout_requested");
   gateway.requireConfigured();
   // Commit the single creation intent BEFORE calling the remote provider. Never blindly POST again.
   boolean create=Boolean.TRUE.equals(tx.execute(s->{
    var t=one("SELECT * FROM transactions WHERE id=?",id);eligible(t);
    boolean inserted=db.update("INSERT INTO gateway_orders(transaction_id,receipt,status,created_by) VALUES(?,?,'CREATING',?) ON CONFLICT(transaction_id) DO NOTHING",id,id.toString(),actor)==1;
-   if(inserted)fraud.audit(actor,"PAYMENT_ORDER_REQUESTED",id,"Sandbox order intent recorded");return inserted;
+   if(inserted)fraud.audit(actor,"PAYMENT_ORDER_REQUESTED",id,"Sandbox order intent recorded",org);return inserted;
   }));
   if(create){
    var t=one("SELECT * FROM transactions WHERE id=?",id);
    try{
     var order=gateway.call("POST","orders",Map.of("amount",t.get("amount_minor"),"currency",t.get("currency"),"receipt",id.toString()));
-    attach(id,order,actor);
+    attach(id,order,actor,org);
    }catch(RuntimeException e){db.update("UPDATE gateway_orders SET status='UNKNOWN',updated_at=now() WHERE transaction_id=? AND status='CREATING'",id);throw e;}
   }
   return tx.execute(s->{
@@ -49,39 +61,41 @@ public class GatewayPayments {
    var g=one("SELECT * FROM gateway_orders WHERE transaction_id=? FOR UPDATE",id);
    if(g.get("provider_order_id")==null)throw new ResponseStatusException(HttpStatus.CONFLICT,"Order creation is unconfirmed. Use Reconcile before checkout; it will not create another order.");
    if(Set.of("CAPTURED","AUTHORIZED").contains(g.get("status")))throw new ResponseStatusException(HttpStatus.CONFLICT,"Payment is already authorized or captured. Reconcile its status.");
-   fraud.audit(actor,"PAYMENT_CHECKOUT_READY",id,"order="+g.get("provider_order_id"));
+   fraud.audit(actor,"PAYMENT_CHECKOUT_READY",id,"order="+g.get("provider_order_id"),org);
    return Map.of("key",gateway.key(),"orderId",g.get("provider_order_id"),"amount",t.get("amount_minor"),"currency",t.get("currency"),"merchant",t.get("merchant"),"contact",t.get("phone_number"));
   });
  }
- private void attach(UUID id,JsonNode order,String actor){
+ private void attach(UUID id,JsonNode order,String actor,UUID org){
   tx.executeWithoutResult(s->{
    var g=one("SELECT * FROM gateway_orders WHERE transaction_id=? FOR UPDATE",id);
    var t=one("SELECT * FROM transactions WHERE id=?",id);
    if(!id.toString().equals(order.path("receipt").asText())||!order.path("id").asText().matches("order_[A-Za-z0-9]+")||order.path("amount").asLong(-1)!=((Number)t.get("amount_minor")).longValue()||!t.get("currency").equals(order.path("currency").asText()))throw new ResponseStatusException(HttpStatus.CONFLICT,"Provider order does not match the stored transaction.");
    if(g.get("provider_order_id")!=null&&!g.get("provider_order_id").equals(order.path("id").asText()))throw new ResponseStatusException(HttpStatus.CONFLICT,"Multiple orders require manual investigation.");
    db.update("UPDATE gateway_orders SET provider_order_id=?,status=CASE WHEN status IN ('CREATING','UNKNOWN') THEN 'CREATED' ELSE status END,updated_at=now() WHERE transaction_id=?",order.path("id").asText(),id);
-   fraud.audit(actor,"PAYMENT_ORDER_LINKED",id,"order="+order.path("id").asText());
+   fraud.audit(actor,"PAYMENT_ORDER_LINKED",id,"order="+order.path("id").asText(),org);
   });
  }
- public Map<String,Object> reconcile(UUID id,String actor){
+ public Map<String,Object> reconcile(UUID id,String actor,UUID org){
+  requireOrg(id,org);
   gateway.requireConfigured();var g=one("SELECT * FROM gateway_orders WHERE transaction_id=?",id);
   if(g.get("provider_order_id")==null){
    JsonNode items=gateway.call("GET","orders?receipt="+id+"&count=100",null).path("items");
    List<JsonNode> exact=new ArrayList<>();items.forEach(o->{if(id.toString().equals(o.path("receipt").asText()))exact.add(o);});
    if(exact.size()!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"No unique provider order found. Check Razorpay Test Dashboard before taking further action; no replacement order was created.");
-   attach(id,exact.get(0),actor);g=one("SELECT * FROM gateway_orders WHERE transaction_id=?",id);
+   attach(id,exact.get(0),actor,org);g=one("SELECT * FROM gateway_orders WHERE transaction_id=?",id);
   }
   JsonNode items=gateway.call("GET","orders/"+g.get("provider_order_id")+"/payments",null).path("items");
   for(JsonNode payment:items)apply(payment,actor);
-  return status(id);
+  return status(id,org);
  }
- public Map<String,Object> confirm(UUID id,String payment,String signature,String actor){
+ public Map<String,Object> confirm(UUID id,String payment,String signature,String actor,UUID org){
+  requireOrg(id,org);
   var g=one("SELECT * FROM gateway_orders WHERE transaction_id=?",id);
   if(g.get("provider_order_id")==null)throw new ResponseStatusException(HttpStatus.CONFLICT,"Order is not linked yet");
   gateway.verifyCheckout((String)g.get("provider_order_id"),payment,signature);
   JsonNode p=gateway.call("GET","payments/"+payment,null);
   if(!g.get("provider_order_id").equals(p.path("order_id").asText())||!payment.equals(p.path("id").asText()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Payment does not belong to this order");
-  apply(p,actor);return status(id);
+  apply(p,actor);return status(id,org);
  }
  // A payment attempt can fail and later authorize. Captured and authorized never regress.
  static String advance(String previous,String next){
@@ -91,7 +105,7 @@ public class GatewayPayments {
  }
  private boolean apply(JsonNode payment,String actor){return Boolean.TRUE.equals(tx.execute(s->applyLocked(payment,actor)));}
  private boolean applyLocked(JsonNode payment,String actor){
-  var rows=db.queryForList("SELECT g.*,t.amount_minor,t.currency,t.merchant,t.phone_number FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE provider_order_id=? FOR UPDATE OF g",payment.path("order_id").asText());
+  var rows=db.queryForList("SELECT g.*,t.amount_minor,t.currency,t.merchant,t.phone_number,t.org_id FROM gateway_orders g JOIN transactions t ON t.id=g.transaction_id WHERE provider_order_id=? FOR UPDATE OF g",payment.path("order_id").asText());
   if(rows.isEmpty())return false;var g=rows.get(0);
   String next=payment.path("status").asText(),pid=payment.path("id").asText();
   if(!pid.matches("pay_[A-Za-z0-9]+")||!Set.of("created","authorized","captured","failed").contains(next)||!payment.path("amount").isIntegralNumber()||payment.path("amount").asLong(-1)!=((Number)g.get("amount_minor")).longValue()||!g.get("currency").equals(payment.path("currency").asText()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Provider payment does not match the stored amount, currency or payment format");
@@ -102,7 +116,9 @@ public class GatewayPayments {
   String combined=advance(((String)g.get("status")).toLowerCase(),state).toUpperCase(Locale.ROOT);
   db.update("UPDATE gateway_orders SET status=?,updated_at=now() WHERE transaction_id=?",combined,g.get("transaction_id"));
   if(attempts.isEmpty()||!state.equals(prior)){
-   fraud.audit(actor,"PAYMENT_"+state.toUpperCase(Locale.ROOT),g.get("transaction_id"),"payment="+pid);
+   fraud.audit(actor,"PAYMENT_"+state.toUpperCase(Locale.ROOT),g.get("transaction_id"),"payment="+pid,(UUID)g.get("org_id"));
+   log.info("Payment state transition transaction={} state={} actor={}",g.get("transaction_id"),state,actor);
+   paymentEvent(state);
    if(Set.of("captured","authorized","failed").contains(state))
     sms.enqueue((UUID)g.get("transaction_id"),"failed".equals(state)?"FAILED":"SUCCESS",(String)g.get("merchant"),((Number)g.get("amount_minor")).longValue(),(String)g.get("currency"),(String)g.get("phone_number"));
   }
@@ -120,9 +136,11 @@ public class GatewayPayments {
    return tx.execute(s->{
     int inserted=db.update("INSERT INTO gateway_events(event_id,payload_hash,event_type,order_id,payment_id,amount_minor,currency,payment_status) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING",eventId,hash,type,p.path("order_id").asText(),p.path("id").asText(),p.path("amount").asLong(),p.path("currency").asText(),p.path("status").asText());
     if(!hash.equals(db.queryForObject("SELECT payload_hash FROM gateway_events WHERE event_id=?",String.class,eventId)))throw new ResponseStatusException(HttpStatus.CONFLICT,"Webhook event ID reused with different content");
+    log.info("Webhook event stored eventId={} type={} duplicate={}",eventId,type,inserted==0);
+    paymentEvent(inserted==0?"webhook_duplicate":"webhook_accepted");
     return Map.of("accepted",true,"duplicate",inserted==0);
    });
-  }catch(ResponseStatusException e){throw e;}catch(org.springframework.dao.DataAccessException e){throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Webhook storage unavailable; retry delivery");}catch(Exception e){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid webhook payload");}
+  }catch(ResponseStatusException e){paymentEvent("webhook_rejected");throw e;}catch(org.springframework.dao.DataAccessException e){throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Webhook storage unavailable; retry delivery");}catch(Exception e){paymentEvent("webhook_rejected");throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid webhook payload");}
  }
  @Scheduled(fixedDelay=2000)
  public void processEvents(){

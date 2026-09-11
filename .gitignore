@@ -9,6 +9,10 @@ target/
 
 # Local deployment bundle containing real credentials
 raksha-k8s.private.yml
+# The live single-file manifest carries real ConfigMap values (DB/demo/SMTP/Azure/httpSMS
+# passwords and keys) once filled in for deployment - never push it. Edit it locally, apply with
+# kubectl directly.
+raksha-k8s.yml
 
 # Extracted runtime dependencies and isolated payment preview
 tmp/payments-check/

@@ -28,6 +28,17 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
   api:
     image: ${DOCKERHUB_USERNAME:-adarshbiradar}/raksha-api:${IMAGE_TAG:-latest}
     build: ./backend
@@ -40,6 +51,11 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-gpt-5.4-mini}
+      HTTPSMS_API_KEY: ${HTTPSMS_API_KEY:-}
+      HTTPSMS_FROM_NUMBER: ${HTTPSMS_FROM_NUMBER:-}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
@@ -51,10 +67,15 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SESSION_STORE: ${SESSION_STORE:-redis}
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
   web:
@@ -99,4 +120,5 @@ volumes:
   prometheus_data:
   grafana_data:
   rabbitmq_data:
+  redis_data:
 
