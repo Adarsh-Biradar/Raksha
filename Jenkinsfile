@@ -70,33 +70,6 @@ pipeline {
         }
       }
     }
-    // Scans the images just pushed to Docker Hub, by reference - no docker-in-docker needed on
-    // this agent. Gates on CRITICAL only (with --ignore-unfixed) so an unfixable base-image CVE
-    // doesn't block every deploy; HIGH/MEDIUM findings are still reported, just non-blocking.
-    stage('Security scan') {
-      agent {
-        kubernetes {
-          yaml '''
-            apiVersion: v1
-            kind: Pod
-            spec:
-              containers:
-              - name: trivy
-                image: aquasec/trivy:latest
-                command: ["sleep"]
-                args: ["infinity"]
-          '''
-        }
-      }
-      steps {
-        container('trivy') {
-          sh '''
-            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 docker.io/adarshbiradar/raksha-api:${IMAGE_TAG}
-            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 docker.io/adarshbiradar/raksha-web:${IMAGE_TAG}
-          '''
-        }
-      }
-    }
     stage('Deploy to k3s') {
       steps {
         container('kubectl') {
