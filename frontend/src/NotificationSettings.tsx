@@ -2,12 +2,12 @@ import {useEffect,useState} from 'react';
 type Row=Record<string,any>;
 type Request=(path:string,options?:RequestInit)=>Promise<any>;
 export function NotificationSettings({request}:{request:Request}){
- const [settings,setSettings]=useState<Row|null>(null),[saved,setSaved]=useState<Row|null>(null),[deliveries,setDeliveries]=useState<Row[]>([]);
+ const [settings,setSettings]=useState<Row|null>(null),[saved,setSaved]=useState<Row|null>(null),[deliveries,setDeliveries]=useState<Row[]>([]),[smsDeliveries,setSmsDeliveries]=useState<Row[]>([]);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  async function reload(){const s=await request('/notifications/settings');setSettings(s);setSaved(s)}
- async function history(){setDeliveries(await request('/notifications/deliveries'))}
+ async function history(){setDeliveries(await request('/notifications/deliveries'));setSmsDeliveries(await request('/notifications/sms-deliveries'))}
  useEffect(()=>{reload().catch(e=>setError(e.message));let live=true;
- const poll=()=>request('/notifications/deliveries').then(rows=>{if(live)setDeliveries(rows)}).catch(e=>{if(live)setError(e.message)});
+ const poll=()=>Promise.all([request('/notifications/deliveries'),request('/notifications/sms-deliveries')]).then(([rows,sms])=>{if(live){setDeliveries(rows);setSmsDeliveries(sms)}}).catch(e=>{if(live)setError(e.message)});
  poll();const timer=setInterval(poll,4000);return()=>{live=false;clearInterval(timer)}
  },[]);
  async function act(work:()=>Promise<void>){setBusy(true);setError('');setNotice('');try{await work();await history()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
@@ -38,5 +38,9 @@ export function NotificationSettings({request}:{request:Request}){
  <section className="panel settings-form" style={{marginTop:24}}><div className="panel-heading"><div><h2>Email delivery history</h2><p>Latest 100 messages · refreshes every four seconds</p></div><button className="button secondary" disabled={busy} onClick={()=>act(history)}>Refresh history</button></div>
  <p className="muted small">Sent means accepted by SMTP, not confirmed inbox delivery. Failures retry up to three attempts. A connection loss after SMTP acceptance can cause a duplicate; the notification ID identifies it.</p>
  {!deliveries.length?<p className="muted">No emails queued yet.</p>:<div className="table-wrap"><table><thead><tr><th>Recipient</th><th>Alert</th><th>Status</th><th>Attempts</th><th>Time</th><th>Details</th></tr></thead><tbody>{deliveries.map(row=><tr key={row.id}><td data-label="Recipient">{row.recipient}</td><td data-label="Alert">{row.classification}<small>{row.alert_id?.slice(0,8)||'Test email'}</small></td><td data-label="Status"><span className={'badge '+(row.state==='SENT'?'normal':row.state==='FAILED'?'high_risk':'pending')}>{row.state}</span></td><td data-label="Attempts">{row.attempts}</td><td data-label="Time">{new Date(row.created_at).toLocaleString()}</td><td data-label="Details">{row.last_error||'—'}{row.state==='FAILED'&&<button className="button secondary" disabled={busy} onClick={()=>act(async()=>{await request('/notifications/deliveries/'+row.id+'/retry',{method:'POST'});setNotice('Email queued for retry.')})}>Retry</button>}</td></tr>)}</tbody></table></div>}
+ </section>
+ <section className="panel settings-form" style={{marginTop:24}}><div className="panel-heading"><div><h2>SMS delivery history</h2><p>Latest 100 messages · refreshes every four seconds</p></div></div>
+ <p className="muted small">Sent to the mobile number provided when the transaction was created, on success or failure. Failures retry up to three attempts.</p>
+ {!smsDeliveries.length?<p className="muted">No SMS queued yet.</p>:<div className="table-wrap"><table><thead><tr><th>Recipient</th><th>Transaction</th><th>Outcome</th><th>Status</th><th>Attempts</th><th>Time</th><th>Details</th></tr></thead><tbody>{smsDeliveries.map(row=><tr key={row.id}><td data-label="Recipient">{row.recipient}</td><td data-label="Transaction"><small>{row.transaction_id?.slice(0,8)}</small></td><td data-label="Outcome">{row.outcome}</td><td data-label="Status"><span className={'badge '+(row.state==='SENT'?'normal':row.state==='FAILED'?'high_risk':'pending')}>{row.state}</span></td><td data-label="Attempts">{row.attempts}</td><td data-label="Time">{new Date(row.created_at).toLocaleString()}</td><td data-label="Details">{row.last_error||'—'}</td></tr>)}</tbody></table></div>}
  </section></>
 }

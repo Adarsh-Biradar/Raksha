@@ -32,6 +32,19 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false
+  # store-type=none rolls back to in-memory sessions (single-replica only) without a code change -
+  # see docs/plans/04-scalability.md's rollback note.
+  session:
+    store-type: ${SESSION_STORE:redis}
+    redis:
+      flush-mode: on-save
+      namespace: raksha:session
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 2s
+      timeout: 2s
 server:
   port: 8080
   servlet:
@@ -54,15 +67,24 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus
+        include: health,prometheus,metrics,info
   endpoint:
     health:
       show-details: never
   metrics:
     tags:
       application: raksha
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 app:
   mail-from: ${SMTP_FROM:}
   demo-password: ${DEMO_PASSWORD}
   worker-enabled: ${WORKER_ENABLED:true}
   worker-mode: ${WORKER_MODE:poll}
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.fraudshield: INFO

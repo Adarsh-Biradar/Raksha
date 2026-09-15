@@ -1,0 +1,79 @@
+# Backs Spring Session (HTTP sessions) and the API's distributed rate limiter, so the api
+# Deployment can safely scale beyond 1 replica. No persistence needed - session/rate-limit data is
+# fine to lose on a Redis restart, so it runs with an emptyDir instead of a PVC.
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: raksha
+  name: redis
+spec:
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app.kubernetes.io/name: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: raksha
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: raksha
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - command: ["redis-server", "--save", "", "--appendonly", "no"]
+        image: redis:7-alpine
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          failureThreshold: 5
+          periodSeconds: 15
+        name: redis
+        ports:
+        - containerPort: 6379
+          name: redis
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "1"
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - emptyDir: {}
+        name: data

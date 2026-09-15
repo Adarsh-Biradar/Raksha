@@ -9,17 +9,18 @@ import org.springframework.stereotype.Component;
 /** Deterministic rule + statistical scoring, shared by the DB-poll worker and the queue consumer. */
 @Component
 public class ScoringEngine {
- private final JdbcTemplate db; private final FraudService service; private final EmailAlerts email; private final MeterRegistry meterRegistry; private final RuleLab lab; private final AccountHolds holds;
+ private final JdbcTemplate db; private final FraudService service; private final EmailAlerts email; private final MeterRegistry meterRegistry; private final RuleLab lab; private final AccountHolds holds; private final AiExplainer ai;
  private static final Logger log=LoggerFactory.getLogger(ScoringEngine.class);
- public ScoringEngine(JdbcTemplate db,FraudService service,EmailAlerts email,MeterRegistry meterRegistry,RuleLab lab,AccountHolds holds){
-  this.db=db;this.service=service;this.email=email;this.meterRegistry=meterRegistry;this.lab=lab;this.holds=holds;
+ public ScoringEngine(JdbcTemplate db,FraudService service,EmailAlerts email,MeterRegistry meterRegistry,RuleLab lab,AccountHolds holds,AiExplainer ai){
+  this.db=db;this.service=service;this.email=email;this.meterRegistry=meterRegistry;this.lab=lab;this.holds=holds;this.ai=ai;
  }
  void score(UUID id) {
   Map<String,Object> t=db.queryForMap("SELECT * FROM transactions WHERE id=?",id);
   String account=(String)t.get("account_id");
+  UUID org=(UUID)t.get("org_id");
   db.queryForList("SELECT pg_advisory_xact_lock(hashtext(?))",account);
   if("SCORED".equals(t.get("status"))||"BLOCKED".equals(t.get("status"))) return;
-  if(holds.block(id,account,"risk-worker",service)) return;
+  if(holds.block(id,account,"risk-worker",service,org)) return;
   Timestamp event=(Timestamp)t.get("occurred_at");
   // Only previously received events strictly before this event contribute to its baseline.
   Map<String,Object> history=db.queryForMap("""
@@ -29,7 +30,7 @@ public class ScoringEngine {
    count(*) FILTER(WHERE occurred_at>=?::timestamptz-interval '5 minutes') recent
    FROM transactions WHERE status<>'BLOCKED' AND account_id=? AND occurred_at<? AND received_at<=? AND currency=?
    """,t.get("device_id"),t.get("country"),event,account,event,t.get("received_at"),t.get("currency"));
-  Map<String,Object> p=db.queryForMap("SELECT * FROM risk_policy WHERE id=1 FOR SHARE");
+  Map<String,Object> p=db.queryForMap("SELECT * FROM risk_policy WHERE org_id=? FOR SHARE",org);
   long n=((Number)history.get("n")).longValue();
   double average=((Number)history.get("average")).doubleValue();
   double deviation=((Number)history.get("deviation")).doubleValue();
@@ -51,7 +52,7 @@ public class ScoringEngine {
   if(enabled(catalog,"BLOCKED_IP") && SignalValues.matchesIp((String)t.get("ip_address"),(String)catalog.get("BLOCKED_IP").get("match_values"))) points+=add(catalog,"BLOCKED_IP",matched,reasons,"Transaction IP matches the negative list");
   if(enabled(catalog,"BLOCKED_PHONE") && t.get("phone_number")!=null && Arrays.asList(((String)catalog.get("BLOCKED_PHONE").get("match_values")).split("\n")).contains(t.get("phone_number"))) points+=add(catalog,"BLOCKED_PHONE",matched,reasons,"Transaction phone matches the negative list");
   int basePoints=points;
-  Map<String,Object> labResult=lab.evaluate(id);
+  Map<String,Object> labResult=lab.evaluate(id,org);
   if("ACTIVE".equals(labResult.get("mode"))&&Boolean.TRUE.equals(labResult.get("matched"))){
    int contribution=RuleLab.number(labResult,"points");points+=contribution;matched.add("REPEATED_AMOUNT");
    reasons.add(labResult.get("matching_count")+" same-amount payments within "+labResult.get("window_minutes")+" minutes (+"+contribution+")");
@@ -70,10 +71,11 @@ public class ScoringEngine {
   if(!classification.equals("NORMAL")) {
    db.update("INSERT INTO alerts(id,transaction_id) VALUES(?,?) ON CONFLICT(transaction_id) DO NOTHING",UUID.randomUUID(),id);
    meterRegistry.counter("raksha.alerts.created","classification",classification).increment();
+   ai.enqueue(id);
   }
-  if(score==100) holds.place(id,account,service);
-  email.enqueue(id,classification,score);
-  service.audit("risk-worker","TRANSACTION_SCORED",id,"score="+score+";policy="+p.get("version"));
+  if(score==100) holds.place(id,account,service,org);
+  email.enqueue(id,classification,score,org);
+  service.audit("risk-worker","TRANSACTION_SCORED",id,"score="+score+";policy="+p.get("version"),org);
   log.info("transaction_scored id={} score={} classification={}",id,score,classification);
  }
  private boolean enabled(Map<String,Map<String,Object>> rules,String code){return Boolean.TRUE.equals(rules.get(code).get("enabled"));}

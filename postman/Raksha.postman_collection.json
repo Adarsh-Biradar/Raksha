@@ -11,7 +11,47 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:8088",
+      "value": "https://api-raksha.rayududev.live",
+      "type": "string"
+    },
+    {
+      "key": "webUrl",
+      "value": "https://raksha.rayududev.live",
+      "type": "string"
+    },
+    {
+      "key": "organizationName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "plan",
+      "value": "PRO",
+      "type": "string"
+    },
+    {
+      "key": "ruleCode",
+      "value": "LARGE_AMOUNT",
+      "type": "string"
+    },
+    {
+      "key": "ruleVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notificationSettingsVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ruleLabVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "emailDeliveryId",
+      "value": "",
       "type": "string"
     },
     {
@@ -427,6 +467,40 @@
             ],
             "url": "{{baseUrl}}/api/transactions/{{transactionId}}",
             "description": "Returns status, score, explanations, feature snapshot and policy version. PENDING is not NORMAL. Re-send after a few seconds if analysis is still pending."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.variables.get(\"transactionId\"))throw new Error(\"Missing transactionId: run the preceding setup/read request first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AI narrative for transaction",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/transactions/{{transactionId}}/ai-explanation",
+            "description": "Only present once ScoringEngine flags the transaction SUSPICIOUS/HIGH_RISK; AiExplainer then generates it asynchronously via Azure OpenAI. state is NOT_REQUESTED (transaction is NORMAL or not yet scored), PENDING, SENT (narrative present) or FAILED (last_error explains why, e.g. 'AI not configured'). The narrative is advisory only — it never changes the deterministic score/classification above it."
           },
           "event": [
             {
@@ -1034,7 +1108,390 @@
       ]
     },
     {
-      "name": "09 Sign out",
+      "name": "09 Payments — Razorpay sandbox",
+      "description": "Requires a SCORED, non-blocked transaction with a phone number (run Create transaction with phoneNumber set, or a simulation). Config reports whether server-side TEST keys are set; without them checkout/reconcile/confirm return 503.",
+      "item": [
+        {
+          "name": "Gateway config",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/payments/config",
+            "description": "configured=false means RAZORPAY_KEY_ID/SECRET/WEBHOOK_SECRET are not set on the server."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "List payment orders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/payments"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "Payment status for transaction",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/payments/{{transactionId}}"
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "if(!pm.variables.get(\"transactionId\"))throw new Error(\"Missing transactionId: run the preceding setup/read request first.\");"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Checkout (create/attach sandbox order)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/payments/{{transactionId}}/checkout",
+            "description": "Idempotent: re-sending after CREATED never creates a second order. Returns the Razorpay order key/orderId for the frontend Checkout widget."
+          },
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "if(!pm.variables.get(\"transactionId\"))throw new Error(\"Missing transactionId: run the preceding setup/read request first.\");"
+          ] } }]
+        },
+        {
+          "name": "Reconcile with provider",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/payments/{{transactionId}}/reconcile",
+            "description": "Polls Razorpay directly for the order/payment status; use this instead of creating a replacement transaction if a checkout call was interrupted."
+          },
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "if(!pm.variables.get(\"transactionId\"))throw new Error(\"Missing transactionId: run the preceding setup/read request first.\");"
+          ] } }]
+        },
+        {
+          "name": "Confirm checkout callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{transactionId}}/confirm",
+            "description": "paymentId/signature come from Razorpay Checkout's success callback in the browser (frontend PaymentScreen.tsx) — this is the server-side verification step, not something to fabricate here.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentId\": \"pay_REPLACE_FROM_CHECKOUT_CALLBACK\",\n  \"signature\": \"REPLACE_64_HEX_CHARS_FROM_CHECKOUT_CALLBACK\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "if(!pm.variables.get(\"transactionId\"))throw new Error(\"Missing transactionId: run the preceding setup/read request first.\");"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "10 Notifications — admin only",
+      "item": [
+        {
+          "name": "Get notification settings",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/notifications/settings"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+            "if(pm.response.code===200){pm.collectionVariables.set(\"notificationSettingsVersion\",pm.response.json().version);}"
+          ] } }]
+        },
+        {
+          "name": "Update notification settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/notifications/settings",
+            "description": "Run Get notification settings first to capture the live version. Enabling requires SMTP to already be configured server-side and at least one recipient.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{notificationSettingsVersion}},\n  \"enabled\": false,\n  \"minimumClassification\": \"HIGH_RISK\",\n  \"recipients\": \"\",\n  \"merchantPhone\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "if(!pm.variables.get(\"notificationSettingsVersion\"))throw new Error(\"Missing notificationSettingsVersion: run Get notification settings first.\");"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "if(pm.response.code===200){pm.collectionVariables.set(\"notificationSettingsVersion\",pm.response.json().version);}"
+            ] } }
+          ]
+        },
+        {
+          "name": "List email deliveries",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/notifications/deliveries"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+            "if(pm.response.code===200){const rows=pm.response.json();pm.collectionVariables.unset(\"emailDeliveryId\");if(rows.length)pm.collectionVariables.set(\"emailDeliveryId\",rows[0].id);}"
+          ] } }]
+        },
+        {
+          "name": "List SMS deliveries",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/notifications/sms-deliveries",
+            "description": "SMS delivery requires HTTPSMS_API_KEY/HTTPSMS_FROM_NUMBER to be configured server-side (see raksha-config ConfigMap); otherwise deliveries land as FAILED with last_error 'SMS not configured'."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "Send test email",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/notifications/test",
+            "description": "Limited to one batch per minute. Requires SMTP configured and at least one saved recipient."
+          }
+        },
+        {
+          "name": "Retry failed email delivery",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/notifications/deliveries/{{emailDeliveryId}}/retry"
+          },
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "if(!pm.variables.get(\"emailDeliveryId\"))throw new Error(\"Missing emailDeliveryId: run List email deliveries first and ensure a FAILED delivery exists.\");"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "11 Rule Lab — admin only",
+      "description": "Measures a 'repeated same-amount payments' signal before activating it as a live rule.",
+      "item": [
+        {
+          "name": "Get Rule Lab configuration",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/rules/lab"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+            "if(pm.response.code===200){pm.collectionVariables.set(\"ruleLabVersion\",pm.response.json().version);}"
+          ] } }]
+        },
+        {
+          "name": "Update Rule Lab configuration",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/rules/lab",
+            "description": "mode: OFF (no effect), SHADOW (records observations without affecting scores), ACTIVE (contributes points live). Run Get first to capture ruleLabVersion.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{ruleLabVersion}},\n  \"mode\": \"SHADOW\",\n  \"repeatCount\": 5,\n  \"windowMinutes\": 5,\n  \"points\": 20\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "if(!pm.variables.get(\"ruleLabVersion\"))throw new Error(\"Missing ruleLabVersion: run Get Rule Lab configuration first.\");"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "if(pm.response.code===200){pm.collectionVariables.set(\"ruleLabVersion\",pm.response.json().version);}"
+            ] } }
+          ]
+        },
+        {
+          "name": "Preview candidate against history",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/rules/lab/preview",
+            "description": "Read-only impact estimate over the latest 500 scored transactions in the last 30 days. accountId empty means all accounts.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"repeatCount\": 5,\n  \"windowMinutes\": 5,\n  \"points\": 20,\n  \"accountId\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "List Rule Lab observations",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/rules/lab/observations",
+            "description": "Populated only while mode=SHADOW."
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 Detection rule catalog — admin only",
+      "item": [
+        {
+          "name": "List detection rules",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/rules/catalog"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+            "if(pm.response.code===200){const rule=pm.response.json().find(r=>r.code===pm.collectionVariables.get(\"ruleCode\"));if(rule)pm.collectionVariables.set(\"ruleVersion\",rule.version);}"
+          ] } }]
+        },
+        {
+          "name": "Update a detection rule",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/rules/catalog/{{ruleCode}}",
+            "description": "ruleCode defaults to LARGE_AMOUNT; change the collection variable to target a different rule (ANOMALY, NEW_DEVICE, NEW_COUNTRY, VELOCITY, FAILED_ATTEMPTS, BLOCKED_IP, BLOCKED_PHONE). Run List detection rules first to capture ruleVersion.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{ruleVersion}},\n  \"enabled\": true,\n  \"points\": 25,\n  \"matchValues\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "if(!pm.variables.get(\"ruleVersion\"))throw new Error(\"Missing ruleVersion: run List detection rules first.\");"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "13 Organization",
+      "description": "Every transaction/alert/rule/notification-setting request above is implicitly scoped to the logged-in user's organization.",
+      "item": [
+        {
+          "name": "Get organization",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/organization"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+            "if(pm.response.code===200){pm.collectionVariables.set(\"organizationName\",pm.response.json().name);}"
+          ] } }]
+        },
+        {
+          "name": "Rename organization (admin only)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/organization",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{organizationName}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "if(!pm.variables.get(\"organizationName\"))throw new Error(\"Missing organizationName: run Get organization first, or set it explicitly.\");"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "14 Billing — usage-based (admin only for plan changes)",
+      "description": "Every accepted POST /api/transactions (including simulator runs) increments this organization's monthly usage counter transactionally. Exceeding the plan cap returns HTTP 402 from Create transaction, not from these endpoints.",
+      "item": [
+        {
+          "name": "Get current usage",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/billing/usage",
+            "description": "Returns plan, period (YYYY-MM), used, cap (null = unlimited) and remaining."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "Change plan (admin only)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/billing/plan",
+            "description": "plan is one of FREE (500/month cap), PRO (10,000/month cap) or ENTERPRISE (unlimited). Change the {{plan}} collection variable to try a different tier.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"{{plan}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 AI Evaluation — admin only",
+      "description": "Grades AiExplainer's narratives against the deterministic ScoringEngine output (not a second AI judging the first). Reports eight dimensions per case: accuracy, hallucination, financialConsistency, reliability, explainability, safety, latency, cost.",
+      "item": [
+        {
+          "name": "Run evaluation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/ai/evaluations/run",
+            "description": "Replays a TAKEOVER and a VELOCITY scenario end to end (ingest → score → AI narrative → grade) and persists the result. If AZURE_OPENAI_* is not configured server-side, cases report passed=true with a note that the AI layer itself was skipped — deterministic scoring is graded independently either way."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "List evaluation run history",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/ai/evaluations",
+            "description": "Latest 50 runs (summary only — total/passed/failed). Run history's `details` column, not exposed here, holds the full per-check breakdown from each run."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "16 Sign out",
       "item": [
         {
           "name": "Logout",

@@ -14,7 +14,7 @@ public class RuleLab {
  AND (h.occurred_at,h.received_at,h.id)<(t.occurred_at,t.received_at,t.id)
  AND h.received_at<=t.received_at
  """;
- public Map<String,Object> configuration(){return db.queryForMap("SELECT * FROM rule_lab WHERE id=1");}
+ public Map<String,Object> configuration(UUID orgId){return db.queryForMap("SELECT * FROM rule_lab WHERE org_id=?",orgId);}
  public long count(UUID id,int minutes){
   return db.queryForObject("SELECT 1+("+COUNT_SQL+") FROM transactions t WHERE t.id=?",Long.class,minutes,id);
  }
@@ -22,8 +22,8 @@ public class RuleLab {
  static String classify(int score,Map<String,Object> policy){
   return score>=number(policy,"high_threshold")?"HIGH_RISK":score>=number(policy,"review_threshold")?"SUSPICIOUS":"NORMAL";
  }
- public Map<String,Object> evaluate(UUID id){
-  Map<String,Object> rule=new HashMap<>(configuration());
+ public Map<String,Object> evaluate(UUID id,UUID orgId){
+  Map<String,Object> rule=new HashMap<>(configuration(orgId));
   long count="OFF".equals(rule.get("mode"))?0:count(id,number(rule,"window_minutes"));
   rule.put("matching_count",count);rule.put("matched",!"OFF".equals(rule.get("mode"))&&count>=number(rule,"repeat_count"));
   return rule;
